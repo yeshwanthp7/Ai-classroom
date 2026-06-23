@@ -291,6 +291,18 @@ export const updateStudentEngagement = async (
   }
 }
 
+// 6.5 Remove student explicitly when they leave
+import { deleteDoc } from "firebase/firestore";
+
+export const removeStudent = async (sessionCode: string, studentId: string): Promise<void> => {
+  try {
+    const studentRef = doc(db, "sessions", sessionCode.trim().toUpperCase(), "students", studentId)
+    await deleteDoc(studentRef);
+  } catch (error) {
+    console.error("Error removing student:", error);
+  }
+}
+
 // 7. End session
 export const endSession = async (sessionCode: string): Promise<void> => {
   try {

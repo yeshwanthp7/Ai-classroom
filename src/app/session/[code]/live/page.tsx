@@ -30,7 +30,7 @@ import {
 import { getFile } from "@/lib/fileStorage"
 import { extractPDFPages } from "@/lib/pdfParser"
 import StudentCamera from "@/components/StudentCamera"
-import { subscribeToStudents, subscribeToSession, syncClassroomProgress } from "@/lib/session-service"
+import { subscribeToStudents, subscribeToSession, syncClassroomProgress, removeStudent } from "@/lib/session-service"
 
 /* ─── MOCK DATA ─── */
 
@@ -286,10 +286,24 @@ export default function LiveClassroomPage() {
 
   /* ─── CLEANUP: kill speech on unmount (navigation away) ─── */
   useEffect(() => {
+    // Add beforeunload to explicitly remove student from Firebase
+    const handleBeforeUnload = () => {
+      if (!isTeacher && studentId && sessionCode) {
+        // We use fetch/sendBeacon or just a fire-and-forget promise
+        removeStudent(sessionCode, studentId).catch(() => {});
+      }
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    
     return () => {
       try { window.speechSynthesis.cancel() } catch { /* ok */ }
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      
+      if (!isTeacher && studentId && sessionCode) {
+        removeStudent(sessionCode, studentId).catch(() => {});
+      }
     }
-  }, [])
+  }, [isTeacher, studentId, sessionCode])
 
   /* ─── TIMER ─── */
   useEffect(() => {
@@ -321,8 +335,16 @@ export default function LiveClassroomPage() {
     const unsubscribe = subscribeToStudents(
       sessionCode,
       (updated) => {
-        setStudents(updated)
-        if (updated.length > 0) {
+        // Auto-remove "ghost" students who closed their tab and stopped sending engagement data
+        const now = Date.now();
+        const activeStudents = updated.filter(s => {
+          if (!s.lastActive) return true;
+          const lastActiveMs = s.lastActive.toMillis ? s.lastActive.toMillis() : (s.lastActive.seconds * 1000);
+          return (now - lastActiveMs) < 15000; // 15 seconds threshold
+        });
+        
+        setStudents(activeStudents)
+        if (activeStudents.length > 0) {
           setClassFocus(Math.floor(updated.reduce((a, s) => a + (s.engagementScore || 0), 0) / updated.length))
         }
       },
