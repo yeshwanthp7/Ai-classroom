@@ -333,91 +333,108 @@ export default function LiveClassroomPage() {
     return () => unsubscribe()
   }, [hasEntered, sessionCode])
 
-  // Use a ref to access the latest localStream inside PeerJS callbacks without recreating the Peer
+  // Use a ref to access the latest localStream inside LiveKit callbacks
   const localStreamRef = useRef<MediaStream | null>(null);
   useEffect(() => {
     localStreamRef.current = localStream;
   }, [localStream]);
 
-  /* ─── WebRTC PEERJS INIT ─── */
-  useEffect(() => {
-    if (!hasEntered || !studentId) return;
+  const [livekitToken, setLivekitToken] = useState<string | null>(null);
 
-    let peer: any;
-    const initPeer = async () => {
-      const { Peer } = await import('peerjs');
-      peer = new Peer(studentId, {
-        config: {
-          iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' },
-            { urls: "turn:openrelay.metered.ca:80", username: "openrelayproject", credential: "openrelayproject" },
-            { urls: "turn:openrelay.metered.ca:443", username: "openrelayproject", credential: "openrelayproject" },
-            { urls: "turn:openrelay.metered.ca:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject" }
-          ]
+  // Fetch LiveKit Token
+  useEffect(() => {
+    if (!hasEntered || !sessionCode || !studentId) return;
+    fetch('/api/livekit/token', {
+      method: 'POST',
+      body: JSON.stringify({ sessionCode, studentId, isTeacher }),
+      headers: { 'Content-Type': 'application/json' }
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.token) setLivekitToken(data.token);
+    })
+    .catch(console.error);
+  }, [hasEntered, sessionCode, studentId, isTeacher]);
+
+  /* ─── LIVEKIT SFU INIT ─── */
+  const roomRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (!hasEntered || !studentId || !livekitToken) return;
+
+    let room: any;
+    const initLiveKit = async () => {
+      const { Room, RoomEvent } = await import('livekit-client');
+      room = new Room();
+      roomRef.current = room;
+
+      room.on(RoomEvent.TrackSubscribed, (track: any, publication: any, participant: any) => {
+        if (track.kind === 'video') {
+           const stream = new MediaStream([track.mediaStreamTrack]);
+           setRemoteStreams(prev => ({ ...prev, [participant.identity]: stream }));
         }
       });
-      peerRef.current = peer;
 
-      peer.on('open', (id: string) => {
-        console.log("PeerJS Connected. ID:", id);
+      room.on(RoomEvent.TrackUnsubscribed, (track: any, publication: any, participant: any) => {
+        if (track.kind === 'video') {
+           setRemoteStreams(prev => {
+             const copy = { ...prev };
+             delete copy[participant.identity];
+             return copy;
+           });
+        }
       });
 
-      peer.on('call', (call: any) => {
-        console.log("Incoming call from:", call.peer);
-        
-        let attempts = 0;
-        const checkStreamAndAnswer = () => {
-          if (localStreamRef.current) {
-            call.answer(localStreamRef.current);
-          } else if (attempts >= 10) {
-            console.log("Answering call without stream (camera took too long or denied)");
-            call.answer(undefined);
-          } else {
-            attempts++;
-            setTimeout(checkStreamAndAnswer, 500);
+      try {
+        const livekitUrl = process.env.NEXT_PUBLIC_LIVEKIT_URL;
+        if (!livekitUrl) {
+          console.error("NEXT_PUBLIC_LIVEKIT_URL is missing!");
+          return;
+        }
+        await room.connect(livekitUrl, livekitToken);
+        console.log("Joined LiveKit room successfully!");
+
+        if (localStreamRef.current) {
+          const videoTrack = localStreamRef.current.getVideoTracks()[0];
+          if (videoTrack) {
+            const { LocalVideoTrack } = await import('livekit-client');
+            const localTk = new LocalVideoTrack(videoTrack);
+            await room.localParticipant.publishTrack(localTk);
           }
-        };
-        checkStreamAndAnswer();
-        
-        call.on('stream', (remoteStream: MediaStream) => {
-          console.log("Received stream from caller:", call.peer);
-          setRemoteStreams(prev => ({ ...prev, [call.peer]: remoteStream }));
-        });
-        callsRef.current[call.peer] = call;
-      });
-
-      peer.on('error', (err: any) => {
-        console.error("PeerJS Error:", err);
-      });
+        }
+      } catch (err) {
+        console.error("LiveKit connection error:", err);
+      }
     };
-    initPeer();
+    initLiveKit();
 
     return () => {
-      if (peer) peer.destroy();
+      if (room) room.disconnect();
     };
-  // IMPORTANT: Do NOT include localStream here, otherwise the peer is destroyed and recreated when camera turns on
-  }, [hasEntered, studentId]);
+  }, [hasEntered, studentId, livekitToken]);
 
-  /* ─── WebRTC AUTO-CALL OUTGOING ─── */
+  // Update LiveKit's video track when localStream changes AFTER initialization
   useEffect(() => {
-    if (!peerRef.current || !localStream || students.length === 0) return;
-
-    students.forEach((student: any) => {
-      if (student.id !== studentId && !callsRef.current[student.id]) {
-        console.log("Calling newly discovered student:", student.id);
-        const call = peerRef.current.call(student.id, localStream);
-        if (call) {
-          callsRef.current[student.id] = call;
-          call.on('stream', (remoteStream: MediaStream) => {
-             console.log("Received stream from answerer:", student.id);
-             setRemoteStreams(prev => ({ ...prev, [student.id]: remoteStream }));
-          });
-          call.on('error', (err: any) => console.error("Call error:", err));
+    if (roomRef.current && localStream && roomRef.current.state === 'connected') {
+      const publishTrackAsync = async () => {
+        const videoTrack = localStream.getVideoTracks()[0];
+        if (videoTrack) {
+          const { LocalVideoTrack } = await import('livekit-client');
+          const localTk = new LocalVideoTrack(videoTrack);
+          
+          const existingPublications = roomRef.current.localParticipant.videoTrackPublications;
+          for (const pub of existingPublications.values()) {
+            if (pub.track) {
+              await roomRef.current.localParticipant.unpublishTrack(pub.track);
+            }
+          }
+          
+          await roomRef.current.localParticipant.publishTrack(localTk);
         }
-      }
-    });
-  }, [students, localStream, studentId]);
+      };
+      publishTrackAsync();
+    }
+  }, [localStream]);
 
   const handleStreamReady = useCallback((stream: MediaStream) => {
     setLocalStream(stream);
