@@ -10,6 +10,8 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
+    "@daily-co/daily-js": "^0.91.0",
+    "@daily-co/daily-react": "^0.25.2",
     "@mediapipe/camera_utils": "^0.3.1675466862",
     "@mediapipe/face_mesh": "^0.4.1633559619",
     "class-variance-authority": "^0.7.1",
@@ -18,7 +20,6 @@
     "lucide-react": "^1.21.0",
     "next": "16.2.9",
     "pdfjs-dist": "^6.0.227",
-    "peerjs": "^1.5.5",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "shadcn": "^4.11.0",

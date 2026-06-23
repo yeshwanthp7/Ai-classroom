@@ -333,91 +333,94 @@ export default function LiveClassroomPage() {
     return () => unsubscribe()
   }, [hasEntered, sessionCode])
 
-  // Use a ref to access the latest localStream inside PeerJS callbacks without recreating the Peer
+  // Use a ref to access the latest localStream inside Daily callbacks without recreating the instance
   const localStreamRef = useRef<MediaStream | null>(null);
   useEffect(() => {
     localStreamRef.current = localStream;
   }, [localStream]);
 
-  /* ─── WebRTC PEERJS INIT ─── */
-  useEffect(() => {
-    if (!hasEntered || !studentId) return;
+  const [dailyUrl, setDailyUrl] = useState<string | null>(null);
 
-    let peer: any;
-    const initPeer = async () => {
-      const { Peer } = await import('peerjs');
-      peer = new Peer(studentId, {
-        config: {
-          iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' },
-            { urls: "turn:openrelay.metered.ca:80", username: "openrelayproject", credential: "openrelayproject" },
-            { urls: "turn:openrelay.metered.ca:443", username: "openrelayproject", credential: "openrelayproject" },
-            { urls: "turn:openrelay.metered.ca:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject" }
-          ]
+  // Fetch Daily Room URL
+  useEffect(() => {
+    if (!hasEntered || !sessionCode) return;
+    fetch('/api/daily/room', {
+      method: 'POST',
+      body: JSON.stringify({ sessionCode }),
+      headers: { 'Content-Type': 'application/json' }
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.url) setDailyUrl(data.url);
+    })
+    .catch(console.error);
+  }, [hasEntered, sessionCode]);
+
+  /* ─── DAILY.CO SFU INIT ─── */
+  const callObjectRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (!hasEntered || !studentId || !dailyUrl) return;
+
+    let callObj: any;
+    const initDaily = async () => {
+      const DailyIframe = (await import('@daily-co/daily-js')).default;
+      callObj = DailyIframe.createCallObject({
+        audioSource: false,
+        videoSource: false
+      });
+      callObjectRef.current = callObj;
+
+      callObj.on('track-started', (e: any) => {
+        if (e.participant && e.participant.user_name && e.participant.local === false && e.track.kind === 'video') {
+           const sid = e.participant.user_name;
+           const stream = new MediaStream([e.track]);
+           setRemoteStreams(prev => ({ ...prev, [sid]: stream }));
         }
       });
-      peerRef.current = peer;
 
-      peer.on('open', (id: string) => {
-        console.log("PeerJS Connected. ID:", id);
+      callObj.on('track-stopped', (e: any) => {
+        if (e.participant && e.participant.user_name && e.track.kind === 'video') {
+           setRemoteStreams(prev => {
+             const copy = { ...prev };
+             delete copy[e.participant.user_name];
+             return copy;
+           });
+        }
       });
 
-      peer.on('call', (call: any) => {
-        console.log("Incoming call from:", call.peer);
-        
-        let attempts = 0;
-        const checkStreamAndAnswer = () => {
-          if (localStreamRef.current) {
-            call.answer(localStreamRef.current);
-          } else if (attempts >= 10) {
-            console.log("Answering call without stream (camera took too long or denied)");
-            call.answer(undefined);
-          } else {
-            attempts++;
-            setTimeout(checkStreamAndAnswer, 500);
-          }
-        };
-        checkStreamAndAnswer();
-        
-        call.on('stream', (remoteStream: MediaStream) => {
-          console.log("Received stream from caller:", call.peer);
-          setRemoteStreams(prev => ({ ...prev, [call.peer]: remoteStream }));
-        });
-        callsRef.current[call.peer] = call;
-      });
+      await callObj.join({ url: dailyUrl, userName: studentId });
+      console.log("Joined Daily.co room:", dailyUrl);
 
-      peer.on('error', (err: any) => {
-        console.error("PeerJS Error:", err);
-      });
-    };
-    initPeer();
-
-    return () => {
-      if (peer) peer.destroy();
-    };
-  // IMPORTANT: Do NOT include localStream here, otherwise the peer is destroyed and recreated when camera turns on
-  }, [hasEntered, studentId]);
-
-  /* ─── WebRTC AUTO-CALL OUTGOING ─── */
-  useEffect(() => {
-    if (!peerRef.current || !localStream || students.length === 0) return;
-
-    students.forEach((student: any) => {
-      if (student.id !== studentId && !callsRef.current[student.id]) {
-        console.log("Calling newly discovered student:", student.id);
-        const call = peerRef.current.call(student.id, localStream);
-        if (call) {
-          callsRef.current[student.id] = call;
-          call.on('stream', (remoteStream: MediaStream) => {
-             console.log("Received stream from answerer:", student.id);
-             setRemoteStreams(prev => ({ ...prev, [student.id]: remoteStream }));
-          });
-          call.on('error', (err: any) => console.error("Call error:", err));
+      // If localStream is already available, attach it now
+      if (localStreamRef.current) {
+        const videoTrack = localStreamRef.current.getVideoTracks()[0];
+        if (videoTrack) {
+          try {
+            await callObj.setInputDevicesAsync({ videoSource: videoTrack, audioSource: false });
+            callObj.setLocalVideo(true);
+          } catch (err) { console.error("Daily.co track attach error:", err); }
         }
       }
-    });
-  }, [students, localStream, studentId]);
+    };
+    initDaily();
+
+    return () => {
+      if (callObj) callObj.destroy();
+    };
+  }, [hasEntered, studentId, dailyUrl]);
+
+  // Update Daily's video track when localStream changes AFTER initialization
+  useEffect(() => {
+    if (callObjectRef.current && localStream) {
+      const videoTrack = localStream.getVideoTracks()[0];
+      if (videoTrack) {
+        callObjectRef.current.setInputDevicesAsync({ videoSource: videoTrack, audioSource: false })
+          .then(() => callObjectRef.current.setLocalVideo(true))
+          .catch((err: any) => console.error("Daily.co video update error:", err));
+      }
+    }
+  }, [localStream]);
 
   const handleStreamReady = useCallback((stream: MediaStream) => {
     setLocalStream(stream);
