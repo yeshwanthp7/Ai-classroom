@@ -66,13 +66,33 @@ src/
   - [x] Designed Student Waiting Room with pulsed sonar rings, mock webcam toggle controls, and classmate rosters
   - [x] Designed Teacher Waiting Room with student tile grid, focus mode / late join toggles, and mode instruction banners
   - [x] Added Google Meet countdown, auto-accept student lobbies, early start, AI script preview modal, and transition chimes
-- [x] Main Classroom Dashboard Page
-  - [x] Implemented core full-screen ClassroomView component layout
-  - [x] Complete Fullscreen Classroom page design with AI/Human toggles, split layout, audio synth notifications, doubt pauses, and bottom controls.
-  - [x] Designed AI Teacher Mode with bouncing waveforms, glowing orb avatar, and scrolling live subtitles
-  - [x] Designed Human Instructor Mode with visual assistant recommendation cards and whiteboard buttons
-  - [x] Created focus-colored student tile grid and auto-answered doubt chat triggers
-  - [x] Added keyboard shortcuts (M, V, H, C), bottom toolbars, and end session countdown overlays
-  - [x] Implemented client-side Promise.race timeout guards (8s) for session creation and joining to prevent "Launching..." hangs on connection issues.
+- [x] Main Classroom Page (rebuilt at `/session/[code]/live`)
+  - [x] Zero Firebase — reads localStorage only, hardcoded mock fallbacks
+  - [x] Entry overlay gate: "Ready to begin?" with Enter Classroom button (satisfies browser autoplay policy)
+  - [x] Web Speech API only initialized after user click (no AudioContext on mount)
+  - [x] Full-screen split layout: 65% left (AI teacher + slides + subtitles) / 35% right (student tiles + doubt chat)
+  - [x] Top bar: logo, topic progress pill, focus %, timer, student count, End Session
+  - [x] Teacher observer banner with Pause AI / Resume / Take Over controls
+  - [x] Bottom toolbar: mic, camera, hand raise, screen share, chat toggle, AI voice mute, record, leave
+  - [x] Simulated student focus scores (emerald/amber/rose borders) refreshing every 7s
+  - [x] AI topic lecture sequence with Web Speech, live subtitles, doubt chat auto-pause
+  - [x] Keyboard shortcuts (M, V, H, C), end session modal, countdown redirect overlay
+  - [x] Waiting room saves session data to localStorage then navigates to /live route
+  - [x] Deleted old `/classroom/[code]` route and `classroom-view.tsx` component (50KB)
+  - [x] Claude API integration for AI teaching
+    - [x] Created `/api/claude/route.ts` — proxies to Anthropic Messages API with comprehensive fallback
+    - [x] ANTHROPIC_API_KEY env var (optional — works without it via smart local fallbacks)
+    - [x] AI teaching calls Claude API on classroom entry, speaks response via Web Speech API
+    - [x] Doubt chat also routes through Claude API for contextual answers
+  - [x] Animated Professor AI tile
+    - [x] Pulsing purple orb (scale + glow animation) when speaking
+    - [x] 5-bar waveform animation below orb when speaking
+    - [x] Glowing animated border on tile when speaking, dims when paused/idle
+    - [x] Shows current topic name instead of "AWAITING..." when speaking
+  - [x] Content area with Unsplash topic images
+    - [x] Fetches topic-relevant image from `source.unsplash.com` for each topic
+    - [x] Added Unsplash domains to `next.config.ts` remotePatterns
+    - [x] Fade-in/out transitions when topic changes
+    - [x] Topic name caption overlaid on image with gradient overlay
 - [ ] Analytics & reports
 

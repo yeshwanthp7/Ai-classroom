@@ -275,6 +275,29 @@ export default function SessionPage() {
     }
   }, [session, currentUser])
 
+  // 5a. Helper: show transition animation, save data to localStorage, then navigate to /live
+  const triggerClassroomTransition = () => {
+    if (isClassroomActive || isTransitioning) return
+    setIsTransitioning(true)
+
+    // Save session data to localStorage for the /live page (zero Firebase dependency there)
+    try {
+      if (session) {
+        localStorage.setItem("sessionTitle", session.title || "Class Session")
+        localStorage.setItem("sessionSubject", session.subject || "General")
+        localStorage.setItem("sessionTopics", JSON.stringify(session.topics || []))
+        localStorage.setItem("teachingMode", session.teachingMode || "AI")
+        localStorage.setItem("userRole", isTeacher ? "teacher" : "student")
+      }
+    } catch { /* localStorage blocked — live page will use defaults */ }
+
+    setTimeout(() => {
+      setIsTransitioning(false)
+      console.log("Transition complete — navigating to /live")
+      router.push(`/session/${sessionCode}/live`)
+    }, 3000)
+  }
+
   // 5. Countdown timer in waiting room
   useEffect(() => {
     if (!session || !session.countdownEndsAt || isClassroomActive) return
@@ -289,11 +312,11 @@ export default function SessionPage() {
 
       if (diff === 0 && session.status !== "Active" && session.status !== "Completed") {
         if (isTeacher) {
+          triggerClassroomTransition()
           try {
             startClassEarly(sessionCode)
           } catch (e) {
             console.warn("startClassEarly fail:", e)
-            setIsClassroomActive(true) // local bypass
           }
         }
       }
@@ -304,20 +327,31 @@ export default function SessionPage() {
     return () => clearInterval(interval)
   }, [session, isTeacher, sessionCode, isClassroomActive])
 
-  // 6. Transition state checker
+  // 6. Transition state checker — triggers when Firebase status goes "Active"
   useEffect(() => {
-    if (session?.status === "Active" && !isClassroomActive && !isTransitioning) {
+    if ((session?.status === "Active") && !isClassroomActive && !isTransitioning) {
+      // Save session data to localStorage before navigating
+      try {
+        if (session) {
+          localStorage.setItem("sessionTitle", session.title || "Class Session")
+          localStorage.setItem("sessionSubject", session.subject || "General")
+          localStorage.setItem("sessionTopics", JSON.stringify(session.topics || []))
+          localStorage.setItem("teachingMode", session.teachingMode || "AI")
+          localStorage.setItem("userRole", isTeacher ? "teacher" : "student")
+        }
+      } catch { /* ok */ }
+
       setIsTransitioning(true)
       const timeout = setTimeout(() => {
         setIsTransitioning(false)
-        setIsClassroomActive(true)
-        console.log("Transition complete")
-        console.log("Navigating to classroom")
+        console.log("Transition complete — navigating to /live")
+        router.push(`/session/${sessionCode}/live`)
       }, 3000)
 
       return () => clearTimeout(timeout)
     }
   }, [session, isClassroomActive, isTransitioning])
+
 
   // 7. Waiting Room: rotate help subtitles
   useEffect(() => {
@@ -598,427 +632,14 @@ export default function SessionPage() {
   }
 
   // ──────────────────────────────────────────
-  // ─── ACTIVE CLASSROOM SCREEN (FULL SCREEN) ──
+  // ─── CLASSROOM REDIRECT FALLBACK ──────────
   // ──────────────────────────────────────────
   if (isClassroomActive) {
-    const activeTopic = session.topics && session.topics[activeTopicIdx] ? session.topics[activeTopicIdx] : "Thermodynamics Core"
-    const progressPercent = session.topics ? Math.floor(((activeTopicIdx + 1) / session.topics.length) * 100) : 50
-
+    router.push(`/session/${sessionCode}/live`)
     return (
-      <div className="fixed inset-0 bg-[#070708] text-white flex flex-col font-sans antialiased overflow-hidden select-none z-50 h-screen w-screen">
-        <style>{`
-          @keyframes waveform {
-            0%, 100% { transform: scaleY(0.2); }
-            50% { transform: scaleY(1.0); }
-          }
-          .wv-bar {
-            animation: waveform 0.75s ease-in-out infinite;
-          }
-          .wv-1 { animation-delay: 0.1s; }
-          .wv-2 { animation-delay: 0.25s; }
-          .wv-3 { animation-delay: 0.05s; }
-          .wv-4 { animation-delay: 0.3s; }
-          .wv-5 { animation-delay: 0.15s; }
-        `}</style>
-
-        {/* 1. ENTRY OVERLAY (Only shows if hasEnteredClassroom is false) */}
-        {!hasEnteredClassroom && (
-          <div className="fixed inset-0 bg-[#08080A] z-[99] flex flex-col items-center justify-center text-center p-6">
-            <div className="space-y-6 max-w-sm mx-auto animate-scaleUp">
-              <div className="h-16 w-16 rounded-2xl bg-gradient-to-tr from-purple-600 to-indigo-600 flex items-center justify-center border border-purple-400/25 mx-auto shadow-[0_0_30px_rgba(147,51,234,0.35)]">
-                <Brain className="h-8 w-8 text-white" />
-              </div>
-              <div className="space-y-2">
-                <h2 className="text-xl font-black text-white">Your classroom is ready</h2>
-                <p className="text-xs text-white/40 leading-relaxed">
-                  Join the room to begin listening to Professor AI. Autoplay requires a user click gesture.
-                </p>
-              </div>
-              <button
-                onClick={() => {
-                  setHasEnteredClassroom(true)
-                  // Trigger first lecture voice
-                  if (session.teachingMode === "AI") {
-                    runAiTopicSpeech(0)
-                  } else {
-                    triggerAudioSpeech("Live class mode enabled. Awaiting instructor audio streams.")
-                  }
-                }}
-                className="w-full py-4.5 bg-purple-600 hover:bg-purple-500 rounded-2xl text-xs font-black uppercase text-white tracking-widest transition-all shadow-lg shadow-purple-600/20 active:scale-[0.98] cursor-pointer"
-              >
-                Enter Classroom
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* 2. TOP BAR (dark #111111) */}
-        <header className="h-16 bg-[#111111] border-b border-white/[0.06] px-6 flex items-center justify-between flex-shrink-0 z-30">
-          <div className="flex items-center gap-3">
-            <div className="h-8 w-8 rounded-lg bg-gradient-to-tr from-purple-600 to-indigo-600 flex items-center justify-center">
-              <Brain className="h-4.5 w-4.5" />
-            </div>
-            <div className="flex flex-col">
-              <span className="text-xs font-black text-white leading-none">Class<span className="text-purple-400">AI</span></span>
-              <span className="text-[10px] text-white/40 font-semibold tracking-wide uppercase truncate max-w-[130px] mt-0.5">
-                {session.title}
-              </span>
-            </div>
-          </div>
-
-          {/* Topic bar progress */}
-          <div className="flex flex-col items-center gap-1.5 w-80">
-            <div className="flex items-center gap-2 text-xs text-white/70 font-medium">
-              <span className="text-purple-400 font-bold uppercase text-[9px] tracking-wider">
-                Topic {activeTopicIdx + 1} of {session.topics?.length || 1}:
-              </span>
-              <span className="truncate max-w-[160px]">{activeTopic}</span>
-            </div>
-            <div className="h-1 w-full bg-white/5 rounded-full overflow-hidden">
-              <div 
-                className="h-full bg-purple-500 rounded-full transition-all duration-700 ease-out" 
-                style={{ width: `${progressPercent}%` }}
-              />
-            </div>
-          </div>
-
-          <div className="flex items-center gap-4 text-xs font-semibold">
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/[0.02] border border-white/5">
-              <span className="h-2 w-2 rounded-full bg-emerald-500" />
-              <span className="text-white/40">Class Focus:</span>
-              <span className="text-emerald-400">87%</span>
-            </div>
-            <div className="flex items-center gap-3 bg-white/[0.02] border border-white/5 px-3 py-1.5 rounded-lg font-mono">
-              <span>{formatTimeStr(elapsedSeconds)}</span>
-              <span className="border-l border-white/10 pl-3 flex items-center gap-1">
-                <Users className="h-3.5 w-3.5 text-purple-400" />
-                {dynamicStudents.length}
-              </span>
-            </div>
-            {isTeacher && (
-              <button
-                onClick={() => setShowEndModal(true)}
-                className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-xl transition-colors cursor-pointer"
-              >
-                End Session
-              </button>
-            )}
-          </div>
-        </header>
-
-        {/* 3. TEACHER BANNER */}
-        {isTeacher && session.teachingMode === "AI" && (
-          <div className="h-10 bg-[#0F0F10] border-b border-white/[0.04] px-6 flex items-center justify-between text-xs text-white/50 flex-shrink-0 z-20">
-            <div className="flex items-center gap-2">
-              <span className="h-1.5 w-1.5 rounded-full bg-purple-500 animate-pulse" />
-              <span>👁 Observing • AI is teaching</span>
-            </div>
-            <div className="flex items-center gap-2.5">
-              <button
-                onClick={() => {
-                  window.speechSynthesis.pause()
-                  setAiSpeechState("paused")
-                  addToast("AI Teacher paused")
-                }}
-                className="px-3 py-1 rounded bg-white/5 border border-white/10 text-white text-[10px] font-bold uppercase transition-all hover:bg-white/10 cursor-pointer"
-              >
-                Pause AI
-              </button>
-              <button
-                onClick={() => {
-                  setTeachingMode("Human")
-                  window.speechSynthesis.cancel()
-                  addToast("You took over instruction")
-                }}
-                className="px-3 py-1 rounded bg-white/5 border border-white/10 text-white text-[10px] font-bold uppercase transition-all hover:bg-white/10 cursor-pointer"
-              >
-                Take Over
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* 4. MAIN SPLIT AREA */}
-        <div className="flex-1 flex overflow-hidden">
-          {/* Left panel (65%) */}
-          <div className="w-[65%] flex flex-col p-5 gap-4.5 overflow-hidden h-full pb-20 justify-between">
-            {/* AI Teacher Tile */}
-            <div className={`bg-[#121214] rounded-2xl border p-4 flex items-center justify-between gap-4 transition-all duration-300 relative ${
-              aiSpeechState === "speaking" ? "border-purple-500/60 shadow-[0_0_15px_rgba(147,51,234,0.15)]" : "border-white/[0.04]"
-            }`}>
-              <div className="flex items-center gap-3">
-                <div className={`h-12 w-12 rounded-xl bg-gradient-to-tr from-purple-600 to-indigo-600 flex items-center justify-center border border-purple-400/25 transition-all ${
-                  aiSpeechState === "speaking" ? "scale-105 shadow-[0_0_12px_rgba(147,51,234,0.3)] animate-pulse" : "opacity-45"
-                }`}>
-                  <Brain className="h-6 w-6 text-white" />
-                </div>
-                <div>
-                  <h4 className="text-xs font-bold text-white leading-none">Professor AI</h4>
-                  <span className="text-[9px] text-white/30 font-bold uppercase mt-1 block">
-                    {aiSpeechState === "speaking" ? "Lecturing..." : aiSpeechState === "paused" ? "Paused" : "Awaiting outline..."}
-                  </span>
-                </div>
-              </div>
-
-              {/* Waveform graphic */}
-              <div className="flex items-center gap-3">
-                {aiSpeechState === "speaking" ? (
-                  <div className="flex items-end gap-1 h-5 w-10 pb-0.5 text-purple-400">
-                    <div className="h-full w-0.5 rounded bg-current wv-bar wv-1" />
-                    <div className="h-full w-0.5 rounded bg-current wv-bar wv-2" />
-                    <div className="h-full w-0.5 rounded bg-current wv-bar wv-3" />
-                    <div className="h-full w-0.5 rounded bg-current wv-bar wv-4" />
-                    <div className="h-full w-0.5 rounded bg-current wv-bar wv-5" />
-                  </div>
-                ) : (
-                  <div className="flex items-end gap-1 h-5 w-10 pb-0.5 text-white/10">
-                    <div className="h-1 w-0.5 rounded bg-current" />
-                    <div className="h-1 w-0.5 rounded bg-current" />
-                  </div>
-                )}
-                <div className="flex items-center gap-1.5 bg-red-950/20 border border-red-500/20 px-2 py-0.5 rounded-full">
-                  <span className="h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse" />
-                  <span className="text-[8px] font-black text-red-400 uppercase tracking-widest">Live</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Content canvas */}
-            <div className="flex-1 bg-[#0D0D0E] border border-white/[0.04] rounded-2xl overflow-hidden flex flex-col relative min-h-[300px]">
-              <div className="absolute top-4 right-4 z-10">
-                <span className="px-2.5 py-1 rounded bg-black/55 border border-white/5 text-[9px] font-mono font-bold text-purple-400 uppercase tracking-widest">
-                  SLIDE
-                </span>
-              </div>
-
-              <div className="flex-1 flex flex-col items-center justify-center p-6 text-center relative">
-                <div className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff01_1px,transparent_1px),linear-gradient(to_bottom,#ffffff01_1px,transparent_1px)] bg-[size:32px_32px] pointer-events-none" />
-                <div className="space-y-4 max-w-xl w-full">
-                  <div className="h-24 w-24 rounded-2xl bg-purple-600/5 border border-purple-500/10 flex items-center justify-center text-purple-400 mx-auto">
-                    <Presentation className="h-10 w-10" />
-                  </div>
-                  <div>
-                    <h3 className="text-base font-bold text-white tracking-tight">{activeTopic}</h3>
-                    <p className="text-xs text-white/40 mt-1 max-w-md mx-auto leading-relaxed">
-                      Slide presentation demonstrating laws governing heat capacity, mechanical limits, and kinetic flow configurations.
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="h-11 border-t border-white/[0.04] bg-black/15 flex items-center justify-between px-5 text-xs text-white/50">
-                <span>Displaying slide details for: {activeTopic}</span>
-                <span className="font-mono text-[9px] text-white/25">PAGE_ID: CLS-0{activeTopicIdx + 1}</span>
-              </div>
-            </div>
-
-            {/* Live Subtitles transcript */}
-            <div className="bg-[#121214] border border-white/[0.04] rounded-2xl p-4.5 space-y-2.5">
-              <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wider text-purple-400">
-                <Radio className="h-3.5 w-3.5 animate-pulse" />
-                Live Subtitles
-              </div>
-              <div className="max-h-[50px] overflow-y-auto custom-scrollbar text-xs leading-relaxed text-white/70">
-                {liveSubtitles || "Professor AI is preparing explanation outline script..."}
-              </div>
-            </div>
-          </div>
-
-          {/* Right panel (35%) */}
-          <aside className="w-[35%] border-l border-white/[0.05] bg-[#070708] flex flex-col overflow-hidden h-full pb-20">
-            {/* Student webcams list */}
-            <div className="flex-1 p-5 border-b border-white/[0.05] flex flex-col overflow-hidden">
-              <h4 className="text-[10px] font-black uppercase tracking-wider text-white border-b border-white/[0.04] pb-3 mb-3 flex items-center justify-between">
-                <span>In this class ({dynamicStudents.length})</span>
-                <span className="text-[10px] text-emerald-400 font-extrabold flex items-center gap-1">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  Active
-                </span>
-              </h4>
-
-              <div className="flex-1 overflow-y-auto custom-scrollbar grid grid-cols-2 gap-3 pr-1">
-                {dynamicStudents.map((st) => (
-                  <div
-                    key={st.id}
-                    className={`h-24 rounded-xl bg-[#111112] border-2 relative overflow-hidden flex flex-col items-center justify-center transition-all ${st.focusColor}`}
-                  >
-                    <span className={`absolute top-2 right-2 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded ${
-                      st.attentionState === "focused" ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/15" : "bg-amber-500/10 text-amber-400 border border-amber-500/15"
-                    }`}>
-                      {st.attentionState}
-                    </span>
-                    <div className="h-7 w-7 rounded-full bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-[10px] font-extrabold text-purple-300">
-                      {st.name.slice(0, 2).toUpperCase()}
-                    </div>
-                    <span className="absolute bottom-2 left-2 text-[10px] font-bold text-white/80 max-w-[100px] truncate">
-                      {st.name}
-                    </span>
-                    <span className="absolute bottom-2 right-2 text-white/30">
-                      <Mic className="h-3 w-3 text-emerald-400" />
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Live chat resolution */}
-            <div className="flex-1 p-5 flex flex-col overflow-hidden">
-              <h4 className="text-[10px] font-black uppercase tracking-wider text-white border-b border-white/[0.04] pb-3 mb-3 flex items-center justify-between">
-                <span className="flex items-center gap-1.5">
-                  <MessageSquare className="h-3.5 w-3.5 text-purple-400" />
-                  Doubt Chat
-                </span>
-              </h4>
-
-              <div className="flex-1 overflow-y-auto custom-scrollbar space-y-3.5 pr-1 pb-2 flex flex-col">
-                {messages.map((msg) => (
-                  <div
-                    key={msg.id}
-                    className={`flex flex-col gap-1 max-w-[85%] ${msg.isAI ? "self-start" : "self-end items-end"}`}
-                  >
-                    <span className="text-[9px] text-white/30 font-bold">{msg.sender} • {msg.time}</span>
-                    <div className={`text-xs px-3.5 py-2.5 rounded-xl leading-relaxed relative ${
-                      msg.isAI ? "bg-[#161618] text-white/95 border border-white/5 rounded-tl-none flex gap-2 items-start" : "bg-purple-600 text-white rounded-tr-none"
-                    }`}>
-                      {msg.isAI && <Brain className="h-4 w-4 text-purple-400 flex-shrink-0 mt-0.5" />}
-                      <span>{msg.text}</span>
-                    </div>
-                  </div>
-                ))}
-                <div ref={chatBottomRef} />
-              </div>
-
-              <form onSubmit={handleSendDoubt} className="flex gap-2 pt-2 border-t border-white/[0.04]">
-                <input
-                  type="text"
-                  required
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  placeholder="Ask a doubt..."
-                  className="flex-1 px-4 py-2.5 bg-[#121214] border border-white/10 rounded-xl text-xs focus:outline-none focus:border-purple-500 text-white"
-                />
-                <button
-                  type="submit"
-                  className="p-2.5 bg-purple-600 hover:bg-purple-500 text-white rounded-xl transition-colors cursor-pointer"
-                >
-                  <CornerDownRight className="h-4 w-4" />
-                </button>
-              </form>
-            </div>
-          </aside>
-        </div>
-
-        {/* 5. BOTTOM TOOLBAR */}
-        <footer className="fixed bottom-0 left-0 right-0 h-16 bg-[#111112]/90 backdrop-blur-xl border-t border-white/[0.04] px-6 flex items-center justify-between z-30">
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setMicOn(!micOn)}
-              className={`p-3 rounded-xl border transition-all cursor-pointer ${
-                micOn ? "bg-white/5 border-white/5 text-white/70 hover:bg-white/10" : "bg-red-500/10 border-red-500/20 text-red-400"
-              }`}
-            >
-              {micOn ? <Mic className="h-4.5 w-4.5" /> : <MicOff className="h-4.5 w-4.5" />}
-            </button>
-            <button
-              onClick={() => setVideoOn(!videoOn)}
-              className={`p-3 rounded-xl border transition-all cursor-pointer ${
-                videoOn ? "bg-white/5 border-white/5 text-white/70 hover:bg-white/10" : "bg-red-500/10 border-red-500/20 text-red-400"
-              }`}
-            >
-              {videoOn ? <Video className="h-4.5 w-4.5" /> : <VideoOff className="h-4.5 w-4.5" />}
-            </button>
-            <button
-              onClick={() => {
-                setHandRaised(!handRaised)
-                if (!handRaised) addToast("You raised your hand ✋")
-              }}
-              className={`p-3 rounded-xl border transition-all cursor-pointer ${
-                handRaised ? "bg-amber-500/15 border-amber-500/25 text-amber-400" : "bg-white/5 border-white/5 text-white/70"
-              }`}
-            >
-              <Hand className="h-4.5 w-4.5" />
-            </button>
-          </div>
-
-          {/* Teacher actions */}
-          {isTeacher && (
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => {
-                  window.speechSynthesis.cancel()
-                  setAiSpeechState("idle")
-                  addToast("AI Lecture interrupted")
-                }}
-                className="px-4 py-2 bg-purple-600/15 border border-purple-500/25 text-purple-400 hover:bg-purple-600/25 rounded-xl text-xs font-bold transition-all cursor-pointer"
-              >
-                Interrupt AI
-              </button>
-              <button
-                onClick={() => {
-                  const val = !isRecording
-                  setIsRecording(val)
-                  addToast(val ? "Recording active" : "Recording saved")
-                }}
-                className={`px-4.5 py-2 rounded-xl border text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-                  isRecording ? "bg-red-500/10 border-red-500/20 text-red-400" : "bg-white/5 border border-white/10 text-white/60"
-                }`}
-              >
-                <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
-                Record
-              </button>
-            </div>
-          )}
-
-          <Link
-            href="/dashboard"
-            onClick={() => window.speechSynthesis.cancel()}
-            className="px-4.5 py-2.5 rounded-xl bg-red-600/10 border border-red-500/15 hover:bg-red-600/20 text-red-400 text-xs font-bold transition-all"
-          >
-            Leave Class
-          </Link>
-        </footer>
-
-        {/* 6. TOASTS */}
-        <div className="fixed bottom-20 left-6 z-50 flex flex-col gap-2 max-w-xs pointer-events-none">
-          {toasts.map((t) => (
-            <div key={t.id} className="flex items-center gap-2 bg-[#141416]/95 border border-white/10 p-3 rounded-xl shadow-2xl animate-slideRight text-xs text-white/95">
-              <span>{t.text}</span>
-            </div>
-          ))}
-        </div>
-
-        {/* 7. END SESSION CONFIRM MODAL */}
-        {showEndModal && (
-          <div className="fixed inset-0 z-[99] flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
-            <div className="bg-[#121214] border border-white/10 w-full max-w-sm rounded-2xl overflow-hidden shadow-2xl">
-              <div className="p-6 text-center space-y-4">
-                <AlertCircle className="h-10 w-10 text-red-500 mx-auto" />
-                <div className="space-y-1.5">
-                  <h3 className="font-bold text-white text-base">End this session?</h3>
-                  <p className="text-xs text-white/40 leading-relaxed">
-                    This will end the active lecture streams for all connected participants.
-                  </p>
-                </div>
-              </div>
-              <div className="px-6 py-4 border-t border-white/[0.04] bg-black/20 flex gap-3">
-                <button onClick={() => setShowEndModal(false)} className="flex-1 py-2.5 bg-white/5 rounded-xl text-xs font-bold text-white/50 hover:text-white transition-all cursor-pointer">Cancel</button>
-                <button onClick={handleEndClass} className="flex-1 py-2.5 bg-red-600 hover:bg-red-500 rounded-xl text-xs font-bold text-white transition-all cursor-pointer">End Session</button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* 8. Countdown Redirect screen */}
-        {endCountdown !== null && (
-          <div className="fixed inset-0 bg-[#070708] z-[999] flex flex-col items-center justify-center text-center p-6">
-            <div className="space-y-4 max-w-sm mx-auto">
-              <Brain className="h-12 w-12 text-purple-400 mx-auto animate-pulse" />
-              <h2 className="text-lg font-black text-white">Class Session Ended</h2>
-              <p className="text-xs text-purple-300/80 leading-relaxed font-semibold italic">"That's all for today. Great work everyone!"</p>
-              <p className="text-[10px] text-white/20 pt-2">Returning to summary page in {endCountdown}s</p>
-            </div>
-          </div>
-        )}
+      <div className="min-h-screen bg-[#0A0A0A] flex flex-col items-center justify-center text-white font-sans">
+        <div className="h-8 w-8 rounded-full border-2 border-purple-500 border-t-transparent animate-spin mb-4" />
+        <p className="text-sm text-white/60">Entering classroom...</p>
       </div>
     )
   }
@@ -1057,10 +678,11 @@ export default function SessionPage() {
 
               <button
                 onClick={async () => {
+                  triggerClassroomTransition()
                   try {
                     await startClassEarly(sessionCode)
                   } catch (e) {
-                    setIsClassroomActive(true) // offline bypass
+                    console.warn("startClassEarly Firebase error (continuing with local transition):", e)
                   }
                 }}
                 className="flex items-center gap-1 px-4.5 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-xs font-bold transition-all cursor-pointer"
@@ -1143,10 +765,11 @@ export default function SessionPage() {
 
                 <button
                   onClick={async () => {
+                    triggerClassroomTransition()
                     try {
                       await startClassEarly(sessionCode)
                     } catch (e) {
-                      setIsClassroomActive(true) // offline bypass
+                      console.warn("startClassEarly Firebase error (continuing with local transition):", e)
                     }
                   }}
                   className="w-full py-3.5 bg-purple-600 hover:bg-purple-500 rounded-xl font-bold text-sm text-white transition-all cursor-pointer"
