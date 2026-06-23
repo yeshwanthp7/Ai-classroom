@@ -33,6 +33,8 @@ export default function StudentCamera({ sessionCode, studentId, enabled, isGridM
 
   useEffect(() => {
     if (!enabled) return;
+    let currentStream: MediaStream | null = null;
+    
     const start = async () => {
       // Wait for video ref to be ready
       if (!videoRef.current) {
@@ -43,6 +45,7 @@ export default function StudentCamera({ sessionCode, studentId, enabled, isGridM
 
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240, facingMode: "user" } });
+        currentStream = stream;
         videoRef.current.srcObject = stream;
         setActive(true);
         console.log("Camera started successfully");
@@ -54,6 +57,9 @@ export default function StudentCamera({ sessionCode, studentId, enabled, isGridM
     };
     start();
     return () => {
+      if (currentStream) {
+        currentStream.getTracks().forEach(t => t.stop());
+      }
       if (videoRef.current?.srcObject) {
         (videoRef.current.srcObject as MediaStream).getTracks().forEach(t => t.stop());
       }

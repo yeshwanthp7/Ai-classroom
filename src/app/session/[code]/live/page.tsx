@@ -497,7 +497,17 @@ export default function LiveClassroomPage() {
   const handleConfirmEnd = () => { setShowEndModal(false); setEndCountdown(5); try { window.speechSynthesis.cancel() } catch { /* ok */ } }
   useEffect(() => {
     if (endCountdown === null) return
-    if (endCountdown === 0) { router.push("/dashboard"); return }
+    if (endCountdown === 0) { 
+      // Explicitly disconnect from LiveKit and stop all tracks to ensure camera light turns off
+      if (roomRef.current) {
+        roomRef.current.disconnect();
+      }
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(t => t.stop());
+      }
+      router.push("/dashboard"); 
+      return 
+    }
     const t = setTimeout(() => setEndCountdown((c) => (c !== null ? c - 1 : null)), 1000)
     return () => clearTimeout(t)
   }, [endCountdown, router])
