@@ -620,7 +620,80 @@ export default function LiveClassroomPage() {
       <div className="flex-1 flex flex-col lg:flex-row overflow-hidden min-h-0">
 
         {/* ─── LEFT 70% ─── */}
-        <div className="w-full lg:w-[70%] flex flex-col p-4 gap-3 min-h-[50vh] lg:min-h-0 pb-4 lg:pb-[84px] shrink-0">
+        <div className="w-full lg:w-[70%] flex flex-col p-4 gap-3 min-h-[50vh] lg:min-h-0 pb-4 lg:pb-[84px] shrink-0 overflow-hidden">
+
+          {/* ── STUDENT TILES GALLERY (TOP) ── */}
+          <div className="flex-none flex flex-col mb-2">
+            <h4 className="text-[10px] font-black uppercase tracking-[.12em] text-white/50 pb-2.5 mb-2.5 border-b border-white/[.06] flex items-center justify-between flex-shrink-0">
+              <span>In Class ({students.length})</span>
+              <span className="text-emerald-400 flex items-center gap-1">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="text-[9px] font-bold">Active</span>
+              </span>
+            </h4>
+            <div className="flex overflow-x-auto gap-3 pb-2 snap-x cscroll">
+              {/* Local User Tile */}
+              <div className={`w-48 shrink-0 snap-center relative aspect-video rounded-xl border ${localMetrics.status === "focused" ? "border-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.35)]" : localMetrics.status === "distracted" ? "border-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.35)]" : localMetrics.status === "away" ? "border-rose-500 shadow-[0_0_8px_rgba(239,68,68,0.35)]" : "border-gray-600"} bg-[#14141b] overflow-hidden transition-all duration-500`}>
+                <div className="absolute inset-0 z-0">
+                  <StudentCamera
+                    sessionCode={sessionCode}
+                    studentId={studentId}
+                    enabled={videoOn}
+                    isGridMode={true}
+                    onLocalFocusUpdate={setLocalMetrics}
+                    onStreamReady={handleStreamReady}
+                  />
+                </div>
+                <div className="absolute bottom-2 left-2 px-2.5 py-1 rounded-md bg-black/60 backdrop-blur-md border border-white/10 flex items-center justify-center text-[10px] font-medium text-white shadow-black drop-shadow-md z-10">
+                  {isTeacher ? "Teacher (You)" : "You"}
+                </div>
+                <div className="absolute top-2 right-2 px-2 py-0.5 rounded bg-[#0a0a0f]/80 backdrop-blur-md border border-white/10 flex items-center justify-center text-[10px] font-mono text-white/80 z-10 gap-1.5">
+                  <div className={`w-1.5 h-1.5 rounded-full animate-pulse ${localMetrics.status === "focused" ? "bg-emerald-500" : localMetrics.status === "distracted" ? "bg-amber-500" : localMetrics.status === "away" ? "bg-rose-500" : "bg-gray-500"}`} />
+                  {Math.round(localMetrics.score)}%
+                </div>
+              </div>
+
+              {/* Other Students */}
+              {students.filter(s => s.id !== studentId).map((student: any) => {
+                const score = student.engagementScore ?? student.score ?? 0;
+                const status = student.status ?? student.state ?? "offline";
+
+                const ringColor = 
+                  status === "focused" ? "border-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.35)]" :
+                  status === "distracted" ? "border-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.35)]" :
+                  status === "away" ? "border-rose-500 shadow-[0_0_8px_rgba(239,68,68,0.35)]" :
+                  "border-gray-600";
+                
+                return (
+                  <div key={student.id} className={`w-48 shrink-0 snap-center relative aspect-video rounded-xl border ${ringColor} bg-[#14141b] flex flex-col items-center justify-center transition-all duration-500 overflow-hidden`}>
+                    {remoteStreams[student.id] ? (
+                      <video 
+                        autoPlay 
+                        playsInline 
+                        className="absolute inset-0 w-full h-full object-cover z-0"
+                        ref={node => {
+                          if (node && node.srcObject !== remoteStreams[student.id]) {
+                            node.srcObject = remoteStreams[student.id];
+                          }
+                        }}
+                      />
+                    ) : (
+                      <div className="w-12 h-12 rounded-full bg-[#1e1e2e] border border-white/5 flex items-center justify-center text-sm font-bold text-white/60 relative z-10 shadow-lg">
+                        {student.name?.split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase() || "?"}
+                      </div>
+                    )}
+                    <span className="absolute bottom-2 left-2 px-2.5 py-1 rounded-md bg-black/60 backdrop-blur-md border border-white/10 text-[10px] font-medium text-white shadow-black drop-shadow-md z-10 truncate max-w-[80%]">
+                      {student.name || "Student"}
+                    </span>
+                    <div className="absolute top-2 right-2 px-2 py-0.5 rounded bg-[#0a0a0f]/80 backdrop-blur-md border border-white/10 flex items-center justify-center text-[10px] font-mono text-white/80 z-10 gap-1.5">
+                      <div className={`w-1.5 h-1.5 rounded-full ${status === "focused" ? "bg-emerald-500" : status === "distracted" ? "bg-amber-500" : status === "away" ? "bg-rose-500" : "bg-gray-500"}`} />
+                      {score}%
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
 
           {/* ── AI TILE ── */}
           <div
@@ -726,81 +799,8 @@ export default function LiveClassroomPage() {
         {/* ─── RIGHT 30% ─── */}
         <aside className="w-full lg:w-[30%] flex-1 border-t lg:border-t-0 lg:border-l border-white/[.06] bg-[#0A0A0A] flex flex-col min-h-0 pb-[84px] lg:pb-0">
 
-          {/* ── STUDENT TILES (45%) ── */}
-          <div className="flex-none lg:flex-[45] p-4 flex flex-col lg:overflow-hidden border-b border-white/[.06]">
-            <h4 className="text-[10px] font-black uppercase tracking-[.12em] text-white/50 pb-2.5 mb-2.5 border-b border-white/[.06] flex items-center justify-between flex-shrink-0">
-              <span>In Class ({students.length})</span>
-              <span className="text-emerald-400 flex items-center gap-1">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                <span className="text-[9px] font-bold">Active</span>
-              </span>
-            </h4>
-            <div className="flex overflow-x-auto lg:grid lg:grid-cols-1 gap-3 pb-2 snap-x cscroll content-start lg:overflow-y-auto">
-              {/* Local User Tile */}
-              <div className={`w-48 shrink-0 snap-center lg:w-auto relative aspect-video rounded-xl border ${localMetrics.status === "focused" ? "border-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.35)]" : localMetrics.status === "distracted" ? "border-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.35)]" : localMetrics.status === "away" ? "border-rose-500 shadow-[0_0_8px_rgba(239,68,68,0.35)]" : "border-gray-600"} bg-[#14141b] overflow-hidden transition-all duration-500`}>
-                <div className="absolute inset-0 z-0">
-                  <StudentCamera
-                    sessionCode={sessionCode}
-                    studentId={studentId}
-                    enabled={videoOn}
-                    isGridMode={true}
-                    onLocalFocusUpdate={setLocalMetrics}
-                    onStreamReady={handleStreamReady}
-                  />
-                </div>
-                <div className="absolute bottom-2 left-2 px-2.5 py-1 rounded-md bg-black/60 backdrop-blur-md border border-white/10 flex items-center justify-center text-[10px] font-medium text-white shadow-black drop-shadow-md z-10">
-                  {isTeacher ? "Teacher (You)" : "You"}
-                </div>
-                <div className="absolute top-2 right-2 px-2 py-0.5 rounded bg-[#0a0a0f]/80 backdrop-blur-md border border-white/10 flex items-center justify-center text-[10px] font-mono text-white/80 z-10 gap-1.5">
-                  <div className={`w-1.5 h-1.5 rounded-full animate-pulse ${localMetrics.status === "focused" ? "bg-emerald-500" : localMetrics.status === "distracted" ? "bg-amber-500" : localMetrics.status === "away" ? "bg-rose-500" : "bg-gray-500"}`} />
-                  {Math.round(localMetrics.score)}%
-                </div>
-              </div>
-
-              {/* Other Students */}
-              {students.filter(s => s.id !== studentId).map((student: any) => {
-                const score = student.engagementScore ?? student.score ?? 0;
-                const status = student.status ?? student.state ?? "offline";
-
-                const ringColor = 
-                  status === "focused" ? "border-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.35)]" :
-                  status === "distracted" ? "border-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.35)]" :
-                  status === "away" ? "border-rose-500 shadow-[0_0_8px_rgba(239,68,68,0.35)]" :
-                  "border-gray-600";
-                
-                return (
-                  <div key={student.id} className={`w-48 shrink-0 snap-center lg:w-auto relative aspect-video rounded-xl border ${ringColor} bg-[#14141b] flex flex-col items-center justify-center transition-all duration-500 overflow-hidden`}>
-                    {remoteStreams[student.id] ? (
-                      <video 
-                        autoPlay 
-                        playsInline 
-                        className="absolute inset-0 w-full h-full object-cover z-0"
-                        ref={node => {
-                          if (node && node.srcObject !== remoteStreams[student.id]) {
-                            node.srcObject = remoteStreams[student.id];
-                          }
-                        }}
-                      />
-                    ) : (
-                      <div className="w-12 h-12 rounded-full bg-[#1e1e2e] border border-white/5 flex items-center justify-center text-sm font-bold text-white/60 relative z-10 shadow-lg">
-                        {student.name?.split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase() || "?"}
-                      </div>
-                    )}
-                    <span className="absolute bottom-2 left-2 px-2.5 py-1 rounded-md bg-black/60 backdrop-blur-md border border-white/10 text-[10px] font-medium text-white shadow-black drop-shadow-md z-10 truncate max-w-[80%]">
-                      {student.name || "Student"}
-                    </span>
-                    <div className="absolute top-2 right-2 px-2 py-0.5 rounded bg-[#0a0a0f]/80 backdrop-blur-md border border-white/10 flex items-center justify-center text-[10px] font-mono text-white/80 z-10 gap-1.5">
-                      <div className={`w-1.5 h-1.5 rounded-full ${status === "focused" ? "bg-emerald-500" : status === "distracted" ? "bg-amber-500" : status === "away" ? "bg-rose-500" : "bg-gray-500"}`} />
-                      {score}%
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* ── DOUBT CHAT (55%) ── */}
-          <div className="flex-[55] p-4 flex flex-col overflow-hidden min-h-0">
+          {/* ── DOUBT CHAT ── */}
+          <div className="flex-1 p-4 flex flex-col overflow-hidden min-h-0">
             <h4 className="text-[10px] font-black uppercase tracking-[.12em] text-white/50 pb-2.5 mb-2 border-b border-white/[.06] flex items-center justify-between flex-shrink-0">
               <span className="flex items-center gap-1.5">
                 <MessageSquare className="h-3 w-3 text-purple-400" />
