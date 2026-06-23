@@ -29,6 +29,7 @@ import {
 
 import { getFile } from "@/lib/fileStorage"
 import { extractPDFPages } from "@/lib/pdfParser"
+import StudentCamera from "@/components/StudentCamera"
 
 /* ─── MOCK DATA ─── */
 
@@ -62,6 +63,8 @@ export default function LiveClassroomPage() {
   const [topics, setTopics] = useState<string[]>(MOCK_TOPICS)
   const [teachingMode, setTeachingMode] = useState<"AI" | "Human">("AI")
   const [isTeacher, setIsTeacher] = useState(true)
+  const isStudent = !isTeacher;
+  const [studentId, setStudentId] = useState("unknown-student")
   const [hasEntered, setHasEntered] = useState(false)
 
   const [pdfPages, setPdfPages] = useState<string[]>([])
@@ -119,11 +122,13 @@ export default function LiveClassroomPage() {
       const storedTopics = localStorage.getItem("sessionTopics")
       const mode = localStorage.getItem("teachingMode")
       const role = localStorage.getItem("userRole")
+      const storedStudentId = localStorage.getItem("studentId")
       if (title) setSessionTitle(title)
       if (subject) setSessionSubject(subject)
       if (storedTopics) { try { setTopics(JSON.parse(storedTopics)) } catch { /* defaults */ } }
       if (mode === "Human") setTeachingMode("Human")
       if (role === "student") setIsTeacher(false)
+      if (storedStudentId) setStudentId(storedStudentId)
     } catch { /* keep defaults */ }
 
     const loadPdf = async () => {
@@ -651,29 +656,30 @@ export default function LiveClassroomPage() {
               </span>
             </h4>
             <div className="flex-1 overflow-y-auto cscroll grid grid-cols-2 gap-2 content-start">
-              {students.map((st) => (
-                <div
-                  key={st.id}
-                  className="rounded-xl bg-[#1A1A1A] relative flex flex-col items-center justify-center"
-                  style={{ height: 80 }}
-                >
-                  {/* Attention badge — small pill top right */}
-                  <div className="absolute top-1.5 right-1.5 flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-black/40">
-                    <span className="h-[5px] w-[5px] rounded-full" style={{ backgroundColor: st.dotColor }} />
-                    <span className="text-[7px] font-bold uppercase" style={{ color: st.dotColor }}>{st.stateLabel}</span>
+              {students.map((student: any) => {
+                const score = student.engagementScore ?? student.score ?? 0;
+                const status = student.status ?? student.state ?? "offline";
+
+                const ringColor = 
+                  status === "focused" ? "border-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.35)]" :
+                  status === "distracted" ? "border-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.35)]" :
+                  status === "away" ? "border-rose-500 shadow-[0_0_8px_rgba(239,68,68,0.35)]" :
+                  "border-gray-600";
+                
+                return (
+                  <div key={student.id} className={`relative rounded-xl border ${ringColor} bg-[#14141b] p-3 flex flex-col items-center gap-2 transition-all duration-500`}>
+                    <div className="w-10 h-10 rounded-full bg-[#1e1e2e] flex items-center justify-center text-xs font-bold text-white/60">
+                      {student.name?.split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase()}
+                    </div>
+                    <span className="text-[10px] text-white/50 truncate max-w-[60px]">
+                      {student.name}
+                    </span>
+                    <div className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-[#0a0a0f] border border-white/10 flex items-center justify-center text-[9px] font-mono text-white/60">
+                      {score}
+                    </div>
                   </div>
-                  {/* Camera-off icon overlay (subtle) */}
-                  <div className="absolute top-1.5 left-1.5 text-white/8">
-                    <VideoOff className="h-3 w-3" />
-                  </div>
-                  {/* Avatar circle */}
-                  <div className="h-7 w-7 rounded-full bg-[#252528] flex items-center justify-center text-[9px] font-extrabold text-white/50 border border-white/[.06]">
-                    {st.initials}
-                  </div>
-                  {/* Name at very bottom */}
-                  <span className="absolute bottom-1.5 text-[9px] font-medium text-white/40 truncate max-w-[85%]">{st.name}</span>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 
@@ -850,6 +856,13 @@ export default function LiveClassroomPage() {
           <p className="text-xs text-purple-300/70 font-semibold italic mt-3">&ldquo;Great work today, everyone!&rdquo;</p>
           <p className="text-[10px] text-white/20 mt-4">Returning to dashboard in {endCountdown}s</p>
         </div>
+      )}
+      {isStudent && (
+        <StudentCamera
+          sessionCode={sessionCode}
+          studentId={studentId}
+          enabled={true}
+        />
       )}
     </div>
   )

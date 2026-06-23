@@ -375,58 +375,24 @@ export default function SessionPage() {
   useEffect(() => {
     if (!hasEnteredClassroom) return
     const simulateFocus = () => {
-      const updated = studentsList.map((st) => {
-        const score = Math.floor(Math.random() * 45) + 55
-        let attentionState: "focused" | "distracted" | "offline" = "focused"
-        let border = "border-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.35)]"
-        
-        if (score < 70) {
-          attentionState = "distracted"
-          border = "border-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.35)]"
-        }
-        if (score < 60) {
-          attentionState = "offline"
-          border = "border-rose-500 shadow-[0_0_8px_rgba(239,68,68,0.35)]"
-        }
+      // REAL DATA: use Live engagementScore from Firebase
+      const updated = studentsList.map((st) => ({
+        ...st,
+        attentionState: st.status as "focused" | "distracted" | "offline",
+        focusColor: 
+          (st.status as string) === "focused" ? "border-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.35)]" :
+          (st.status as string) === "distracted" ? "border-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.35)]" :
+          (st.status as string) === "away" ? "border-rose-500 shadow-[0_0_8px_rgba(239,68,68,0.35)]" :
+          "border-gray-600",
+        isMuted: true,
+      }));
 
-        return {
-          ...st,
-          engagementScore: score,
-          attentionState,
-          focusColor: border,
-          isMuted: Math.random() > 0.3
-        }
-      })
+      setDynamicStudents(updated as any);
 
-      // At least 6 students in class
-      const MOCK_NAMES = ["Emily R.", "Jacob S.", "Michael C.", "Sophia P.", "Liam K.", "Chloe D."]
-      while (updated.length < 6) {
-        const idx = updated.length
-        const score = Math.floor(Math.random() * 40) + 60
-        let attentionState: "focused" | "distracted" | "offline" = "focused"
-        let border = "border-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.35)]"
-        
-        if (score < 72) {
-          attentionState = "distracted"
-          border = "border-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.35)]"
-        }
-
-        updated.push({
-          id: `mock-st-${idx}`,
-          name: MOCK_NAMES[idx % MOCK_NAMES.length],
-          joinedAt: null,
-          lastActive: null,
-          status: "active",
-          engagementScore: score,
-          attentionState,
-          focusColor: border,
-          isMuted: true
-        })
+      if (updated.length > 0) {
+        const avg = Math.floor(updated.reduce((acc, c) => acc + (c.engagementScore || 0), 0) / updated.length);
+        setClassFocusAvg(avg || 0);
       }
-
-      setDynamicStudents(updated)
-      const avg = Math.floor(updated.reduce((acc, c) => acc + c.engagementScore, 0) / updated.length)
-      setClassFocusAvg(avg)
     }
 
     simulateFocus()

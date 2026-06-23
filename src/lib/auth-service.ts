@@ -1,5 +1,6 @@
 import {
   signInWithPopup,
+  signInWithRedirect,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   updateProfile,
@@ -10,11 +11,16 @@ import {
 import { auth, googleProvider } from "./firebase"
 
 // 1. Sign in with Google
-export const signInWithGoogle = async (): Promise<User> => {
+export const signInWithGoogle = async (): Promise<User | null> => {
   try {
     const result = await signInWithPopup(auth, googleProvider)
     return result.user
-  } catch (error) {
+  } catch (error: any) {
+    if (error.code === "auth/popup-blocked") {
+      console.warn("Popup blocked, falling back to redirect...")
+      await signInWithRedirect(auth, googleProvider)
+      return null;
+    }
     console.error("Google Sign-In Error:", error)
     throw error
   }

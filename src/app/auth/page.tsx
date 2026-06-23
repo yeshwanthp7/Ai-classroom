@@ -65,11 +65,22 @@ export default function AuthPage() {
 
   // Sign in with Google
   const handleGoogleSignIn = async () => {
-    setError(null)
-    setSuccess(null)
-    setIsSubmitting(true)
+    // Note: Do NOT set state here before calling signInWithGoogle()
+    // React state updates create a new microtask which causes Safari & Chrome 
+    // to lose the "trusted user interaction" context, leading to auth/popup-blocked.
     try {
       const user = await signInWithGoogle()
+      
+      // If user is null, it means popup was blocked and we fell back to redirect.
+      // We just show a loading state and let the page redirect.
+      if (!user) {
+        setIsSubmitting(true)
+        setSuccess("Redirecting to Google...")
+        return
+      }
+
+      setError(null)
+      setIsSubmitting(true)
       setSuccess(`Signed in successfully as ${user.displayName || user.email}!`)
       // Redirect after brief delay to show success
       setTimeout(() => {
@@ -77,13 +88,13 @@ export default function AuthPage() {
       }, 1500)
     } catch (err: any) {
       console.error(err)
+      setIsSubmitting(false)
       // Custom user friendly message mapping
       if (err.code === "auth/popup-closed-by-user") {
         setError("Sign-in popup closed before completion. Please try again.")
       } else {
         setError(err.message || "Failed to sign in with Google.")
       }
-      setIsSubmitting(false)
     }
   }
 
