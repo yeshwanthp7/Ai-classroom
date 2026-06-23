@@ -1,36 +1,83 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Class AI — Classroom Monitoring Platform
 
-## Getting Started
+Class AI is an AI-powered classroom monitoring and student engagement application built with Next.js, TypeScript, Tailwind CSS, and Firebase. It uses artificial intelligence to track student focus, facilitate classroom interaction, provide real-time telemetry/insights, and help educators build premium interactive learning environments.
 
-First, run the development server:
+## 🚀 Features
 
+*   **Premium WebGL Aesthetics:** Smooth dark-mode first design with a dynamic Three.js WebGL shader landing background and micro-animations.
+*   **Dual Mode Architecture:**
+    *   **AI Teacher Mode:** Autonomous virtual assistant with real-time waveform visualization, floating glowing avatar, and automatic speech subtitle generation.
+    *   **Human Instructor Mode:** Interactive control board featuring visual teaching assistants, question recommendations, whiteboard overrides, and classroom controls.
+*   **Student Waiting Room:** Interactive lobby with radar sonar visual rings, class participant rosters, and microphone/camera setup previews.
+*   **Teacher Control Panel:** Grid dashboard featuring focus indicators, late-join toggle capabilities, automated Google Meet entry, and AI-script planners.
+*   **Real-time Synchronization:** Built on top of Firebase Realtime/Firestore document subscriptions and state synchronization.
+
+---
+
+## 🛠️ Tech Stack & Architecture
+
+*   **Frontend Framework:** [Next.js 15 (App Router)](https://nextjs.org/)
+*   **Programming Language:** [TypeScript](https://www.typescriptlang.org/)
+*   **Database & Auth:** [Firebase v10+ (Firestore & Authentication)](https://firebase.google.com/)
+*   **Styling & UI:** [Tailwind CSS 4](https://tailwindcss.com/) + [shadcn/ui](https://ui.shadcn.com/)
+*   **Animations:** [Three.js](https://threejs.org/) (shader-based, loaded via CDN for high performance)
+*   **Icons:** [Lucide React](https://lucide.dev/)
+
+---
+
+## 📦 Getting Started
+
+### 1. Prerequisites
+Ensure you have **Node.js** (v18 or higher) and **npm** installed on your system.
+
+### 2. Installation
+Clone the repository and install the dependencies:
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+git clone https://github.com/AM-iSMAIL/ai-class-monitoring-v2.git
+cd ai-class-monitoring-v2
+npm install
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### 3. Environment Variables
+Create a `.env.local` file in the root directory and add your Firebase credentials:
+```env
+NEXT_PUBLIC_FIREBASE_API_KEY=your_api_key
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=your_auth_domain
+NEXT_PUBLIC_FIREBASE_PROJECT_ID=your_project_id
+NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=your_storage_bucket
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=your_messaging_sender_id
+NEXT_PUBLIC_FIREBASE_APP_ID=your_app_id
+```
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 4. Running the Development Server
+```bash
+npm run dev
+```
+Open [http://localhost:3000](http://localhost:3000) in your browser to view the application.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+---
 
-## Learn More
+## 📁 Project Structure
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```
+src/
+├── app/
+│   ├── auth/                # Teacher Sign In / Sign Up & Student Lobby
+│   ├── dashboard/           # Classroom Analytics and Session Creator Wizard
+│   ├── session/             # Dynamic [code] waiting rooms
+│   ├── globals.css          # Core design system & Tailwind layers
+│   ├── layout.tsx           # Layout, fonts, and metadata
+│   └── page.tsx             # Interactive landing page with loading screens
+├── components/
+│   ├── ui/                  # Reusable shadcn & custom components
+│   │   ├── button.tsx       # Tailwind-styled button
+│   │   ├── loading-screen.tsx # App transition loading screen
+│   │   └── shader-lines.tsx # Dynamic Three.js backdrop
+│   ├── classroom-view.tsx   # Interactive full-screen Classroom Panel
+│   └── dashboard-sidebar.tsx# Persistent sidebar layout
+└── lib/
+    ├── firebase.ts          # Firebase Client Scaffolding
+    ├── auth-service.ts      # Authentication Helper Functions
+    ├── session-service.ts   # Firestore Telemetry and Sync Handlers
+    └── utils.ts             # Tailwind class merging utility
+```
