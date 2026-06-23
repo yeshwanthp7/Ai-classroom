@@ -345,6 +345,9 @@ export default function LiveClassroomPage() {
           iceServers: [
             { urls: 'stun:stun.l.google.com:19302' },
             { urls: 'stun:stun1.l.google.com:19302' },
+            { urls: "turn:openrelay.metered.ca:80", username: "openrelayproject", credential: "openrelayproject" },
+            { urls: "turn:openrelay.metered.ca:443", username: "openrelayproject", credential: "openrelayproject" },
+            { urls: "turn:openrelay.metered.ca:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject" }
           ]
         }
       });
@@ -614,10 +617,10 @@ export default function LiveClassroomPage() {
       </header>
 
       {/* ═══ MAIN AREA ═══ */}
-      <div className="flex-1 flex overflow-hidden min-h-0">
+      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden min-h-0">
 
         {/* ─── LEFT 70% ─── */}
-        <div className="w-[70%] flex flex-col p-4 gap-3 min-h-0 pb-[84px]">
+        <div className="w-full lg:w-[70%] flex flex-col p-4 gap-3 min-h-[50vh] lg:min-h-0 pb-4 lg:pb-[84px] shrink-0">
 
           {/* ── AI TILE ── */}
           <div
@@ -721,10 +724,10 @@ export default function LiveClassroomPage() {
         </div>
 
         {/* ─── RIGHT 30% ─── */}
-        <aside className="w-[30%] border-l border-white/[.06] bg-[#0A0A0A] flex flex-col min-h-0 pb-[84px]">
+        <aside className="w-full lg:w-[30%] flex-1 border-t lg:border-t-0 lg:border-l border-white/[.06] bg-[#0A0A0A] flex flex-col min-h-0 pb-[84px] lg:pb-0">
 
           {/* ── STUDENT TILES (45%) ── */}
-          <div className="flex-[45] p-4 flex flex-col overflow-hidden border-b border-white/[.06]">
+          <div className="flex-none lg:flex-[45] p-4 flex flex-col lg:overflow-hidden border-b border-white/[.06]">
             <h4 className="text-[10px] font-black uppercase tracking-[.12em] text-white/50 pb-2.5 mb-2.5 border-b border-white/[.06] flex items-center justify-between flex-shrink-0">
               <span>In Class ({students.length})</span>
               <span className="text-emerald-400 flex items-center gap-1">
@@ -732,9 +735,9 @@ export default function LiveClassroomPage() {
                 <span className="text-[9px] font-bold">Active</span>
               </span>
             </h4>
-            <div className="flex-1 overflow-y-auto cscroll grid grid-cols-1 gap-3 content-start">
+            <div className="flex overflow-x-auto lg:grid lg:grid-cols-1 gap-3 pb-2 snap-x cscroll content-start lg:overflow-y-auto">
               {/* Local User Tile */}
-              <div className={`relative aspect-video rounded-xl border ${localMetrics.status === "focused" ? "border-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.35)]" : localMetrics.status === "distracted" ? "border-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.35)]" : localMetrics.status === "away" ? "border-rose-500 shadow-[0_0_8px_rgba(239,68,68,0.35)]" : "border-gray-600"} bg-[#14141b] overflow-hidden transition-all duration-500`}>
+              <div className={`w-48 shrink-0 snap-center lg:w-auto relative aspect-video rounded-xl border ${localMetrics.status === "focused" ? "border-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.35)]" : localMetrics.status === "distracted" ? "border-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.35)]" : localMetrics.status === "away" ? "border-rose-500 shadow-[0_0_8px_rgba(239,68,68,0.35)]" : "border-gray-600"} bg-[#14141b] overflow-hidden transition-all duration-500`}>
                 <div className="absolute inset-0 z-0">
                   <StudentCamera
                     sessionCode={sessionCode}
@@ -766,7 +769,7 @@ export default function LiveClassroomPage() {
                   "border-gray-600";
                 
                 return (
-                  <div key={student.id} className={`relative aspect-video rounded-xl border ${ringColor} bg-[#14141b] flex flex-col items-center justify-center transition-all duration-500 overflow-hidden`}>
+                  <div key={student.id} className={`w-48 shrink-0 snap-center lg:w-auto relative aspect-video rounded-xl border ${ringColor} bg-[#14141b] flex flex-col items-center justify-center transition-all duration-500 overflow-hidden`}>
                     {remoteStreams[student.id] ? (
                       <video 
                         autoPlay 
