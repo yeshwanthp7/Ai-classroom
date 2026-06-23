@@ -333,6 +333,12 @@ export default function LiveClassroomPage() {
     return () => unsubscribe()
   }, [hasEntered, sessionCode])
 
+  // Use a ref to access the latest localStream inside PeerJS callbacks without recreating the Peer
+  const localStreamRef = useRef<MediaStream | null>(null);
+  useEffect(() => {
+    localStreamRef.current = localStream;
+  }, [localStream]);
+
   /* ─── WebRTC PEERJS INIT ─── */
   useEffect(() => {
     if (!hasEntered || !studentId) return;
@@ -359,7 +365,16 @@ export default function LiveClassroomPage() {
 
       peer.on('call', (call: any) => {
         console.log("Incoming call from:", call.peer);
-        call.answer(localStream || undefined);
+        
+        // Wait for our local stream to be ready before answering
+        const checkStreamAndAnswer = () => {
+          if (localStreamRef.current) {
+            call.answer(localStreamRef.current);
+          } else {
+            setTimeout(checkStreamAndAnswer, 500);
+          }
+        };
+        checkStreamAndAnswer();
         
         call.on('stream', (remoteStream: MediaStream) => {
           console.log("Received stream from caller:", call.peer);
@@ -377,7 +392,8 @@ export default function LiveClassroomPage() {
     return () => {
       if (peer) peer.destroy();
     };
-  }, [hasEntered, studentId, localStream]);
+  // IMPORTANT: Do NOT include localStream here, otherwise the peer is destroyed and recreated when camera turns on
+  }, [hasEntered, studentId]);
 
   /* ─── WebRTC AUTO-CALL OUTGOING ─── */
   useEffect(() => {
