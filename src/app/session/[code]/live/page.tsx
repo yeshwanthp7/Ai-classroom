@@ -30,6 +30,7 @@ import {
 import { getFile } from "@/lib/fileStorage"
 import { extractPDFPages } from "@/lib/pdfParser"
 import StudentCamera from "@/components/StudentCamera"
+import { subscribeToStudents } from "@/lib/session-service"
 
 /* ─── MOCK DATA ─── */
 
@@ -42,14 +43,6 @@ const DOUBT_RESPONSES = [
   "Absolute zero is the theoretical lower limit of temperature. The Third Law states you cannot reach it in a finite number of steps.",
 ]
 
-const MOCK_STUDENTS = [
-  { id: "s1", name: "Emily R.", initials: "ER" },
-  { id: "s2", name: "Jacob S.", initials: "JS" },
-  { id: "s3", name: "Michael C.", initials: "MC" },
-  { id: "s4", name: "Sophia P.", initials: "SP" },
-  { id: "s5", name: "Liam K.", initials: "LK" },
-  { id: "s6", name: "Chloe D.", initials: "CD" },
-]
 
 /* ─── COMPONENT ─── */
 
@@ -91,12 +84,9 @@ export default function LiveClassroomPage() {
   const [imageLoaded, setImageLoaded] = useState(false)
   const [imageFading, setImageFading] = useState(false)
 
-  const [students, setStudents] = useState<Array<{
-    id: string; name: string; initials: string
-    score: number; state: "focused" | "distracted" | "away"
-    dotColor: string; stateLabel: string
-  }>>([])
-  const [classFocus, setClassFocus] = useState(87)
+  const [students, setStudents] = useState<any[]>([])
+  const [classFocus, setClassFocus] = useState(0)
+  const [localMetrics, setLocalMetrics] = useState<{score: number, status: string}>({score: 0, status: "offline"})
 
   const [chatInput, setChatInput] = useState("")
   const [isAnswering, setIsAnswering] = useState(false)
@@ -305,23 +295,21 @@ export default function LiveClassroomPage() {
 
   /* ─── STUDENTS SIM ─── */
   useEffect(() => {
-    if (!hasEntered) return
-    const sim = () => {
-      const updated = MOCK_STUDENTS.map((st) => {
-        const score = Math.floor(Math.random() * 40) + 60
-        let state: "focused" | "distracted" | "away" = "focused"
-        let dotColor = "#10B981"; let stateLabel = "Focused"
-        if (score < 72) { state = "distracted"; dotColor = "#F59E0B"; stateLabel = "Distracted" }
-        if (score < 62) { state = "away"; dotColor = "#EF4444"; stateLabel = "Away" }
-        return { ...st, score, state, dotColor, stateLabel }
-      })
-      setStudents(updated)
-      setClassFocus(Math.floor(updated.reduce((a, s) => a + s.score, 0) / updated.length))
-    }
-    sim()
-    const i = setInterval(sim, 7000)
-    return () => clearInterval(i)
-  }, [hasEntered])
+    if (!hasEntered || !sessionCode) return
+    const unsubscribe = subscribeToStudents(
+      sessionCode,
+      (updated) => {
+        setStudents(updated)
+        if (updated.length > 0) {
+          setClassFocus(Math.floor(updated.reduce((a, s) => a + (s.engagementScore || 0), 0) / updated.length))
+        }
+      },
+      (err) => {
+        console.error("Failed to sync students in live page:", err)
+      }
+    )
+    return () => unsubscribe()
+  }, [hasEntered, sessionCode])
 
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }) }, [messages])
   useEffect(() => { transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" }) }, [transcript, pastTranscripts])
@@ -656,7 +644,30 @@ export default function LiveClassroomPage() {
               </span>
             </h4>
             <div className="flex-1 overflow-y-auto cscroll grid grid-cols-2 gap-2 content-start">
-              {students.map((student: any) => {
+              {/* Local User Tile */}
+              <div className={`relative aspect-square rounded-xl border ${localMetrics.status === "focused" ? "border-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.35)]" : localMetrics.status === "distracted" ? "border-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.35)]" : localMetrics.status === "away" ? "border-rose-500 shadow-[0_0_8px_rgba(239,68,68,0.35)]" : "border-gray-600"} bg-[#14141b] p-3 flex flex-col items-center justify-center gap-2 transition-all duration-500 overflow-hidden`}>
+                <div className="absolute inset-0 z-0 opacity-40 mix-blend-screen">
+                  <StudentCamera
+                    sessionCode={sessionCode}
+                    studentId={studentId}
+                    enabled={videoOn}
+                    isGridMode={true}
+                    onLocalFocusUpdate={setLocalMetrics}
+                  />
+                </div>
+                <div className="w-10 h-10 rounded-full border border-white/10 flex items-center justify-center bg-black/40 backdrop-blur-sm text-xs font-bold text-white/60 relative z-10 mt-auto">
+                  {isTeacher ? "T" : "U"}
+                </div>
+                <span className="text-[10px] font-medium text-white shadow-black drop-shadow-md truncate max-w-full px-2 relative z-10 mb-auto">
+                  {isTeacher ? "Teacher (You)" : "You"}
+                </span>
+                <div className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-[#0a0a0f] border border-white/10 flex items-center justify-center text-[9px] font-mono text-white/60 z-10">
+                  {Math.round(localMetrics.score)}
+                </div>
+              </div>
+
+              {/* Other Students */}
+              {students.filter(s => s.id !== studentId).map((student: any) => {
                 const score = student.engagementScore ?? student.score ?? 0;
                 const status = student.status ?? student.state ?? "offline";
 
@@ -667,14 +678,14 @@ export default function LiveClassroomPage() {
                   "border-gray-600";
                 
                 return (
-                  <div key={student.id} className={`relative rounded-xl border ${ringColor} bg-[#14141b] p-3 flex flex-col items-center gap-2 transition-all duration-500`}>
-                    <div className="w-10 h-10 rounded-full bg-[#1e1e2e] flex items-center justify-center text-xs font-bold text-white/60">
-                      {student.name?.split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase()}
+                  <div key={student.id} className={`relative aspect-square rounded-xl border ${ringColor} bg-[#14141b] p-3 flex flex-col items-center justify-center gap-2 transition-all duration-500 overflow-hidden`}>
+                    <div className="w-10 h-10 rounded-full bg-[#1e1e2e] flex items-center justify-center text-xs font-bold text-white/60 relative z-10 mt-auto">
+                      {student.name?.split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase() || "?"}
                     </div>
-                    <span className="text-[10px] text-white/50 truncate max-w-[60px]">
-                      {student.name}
+                    <span className="text-[10px] text-white/50 truncate max-w-full px-1 relative z-10 mb-auto">
+                      {student.name || "Student"}
                     </span>
-                    <div className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-[#0a0a0f] border border-white/10 flex items-center justify-center text-[9px] font-mono text-white/60">
+                    <div className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-[#0a0a0f] border border-white/10 flex items-center justify-center text-[9px] font-mono text-white/60 z-10">
                       {score}
                     </div>
                   </div>
@@ -856,13 +867,6 @@ export default function LiveClassroomPage() {
           <p className="text-xs text-purple-300/70 font-semibold italic mt-3">&ldquo;Great work today, everyone!&rdquo;</p>
           <p className="text-[10px] text-white/20 mt-4">Returning to dashboard in {endCountdown}s</p>
         </div>
-      )}
-      {isStudent && (
-        <StudentCamera
-          sessionCode={sessionCode}
-          studentId={studentId}
-          enabled={true}
-        />
       )}
     </div>
   )

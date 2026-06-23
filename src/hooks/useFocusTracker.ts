@@ -79,10 +79,14 @@ export function useFocusTracker({ videoRef, onFocusUpdate, enabled = true }: Use
 
     let faceMesh: any;
     let camera: any;
+    let isCancelled = false;
 
     const initTracker = async () => {
-      const faceMeshMod = await import("@mediapipe/face_mesh");
-      const cameraUtilsMod = await import("@mediapipe/camera_utils");
+      try {
+        const faceMeshMod = await import("@mediapipe/face_mesh");
+        const cameraUtilsMod = await import("@mediapipe/camera_utils");
+        
+        console.log("MediaPipe modules loaded");
       
       const FaceMeshConstructor = faceMeshMod.FaceMesh || (window as any).FaceMesh;
       const CameraConstructor = cameraUtilsMod.Camera || (window as any).Camera;
@@ -133,21 +137,33 @@ export function useFocusTracker({ videoRef, onFocusUpdate, enabled = true }: Use
         lastUpdateRef.current = now;
       }
     });
-
     camera = new CameraConstructor(video, {
-      onFrame: async () => { await faceMesh.send({ image: video }); },
+      onFrame: async () => { 
+        if (isCancelled || !faceMesh) return;
+        try {
+          await faceMesh.send({ image: video }); 
+        } catch (e) {
+          console.warn("FaceMesh send error (likely disposed):", e);
+        }
+      },
       width: 320,
       height: 240,
     });
 
-    camera.start();
+      camera.start();
+      } catch (err) {
+        console.error("Failed to load MediaPipe:", err);
+      }
     };
 
     initTracker();
 
     return () => { 
+      isCancelled = true;
       if (camera) camera.stop(); 
-      if (faceMesh) faceMesh.close(); 
+      if (faceMesh) {
+        try { faceMesh.close(); } catch (e) { /* ignore */ }
+      }
     };
   }, [enabled, videoRef, onFocusUpdate, calculateEAR, estimateHeadPose, estimateGaze, computeScore]);
 

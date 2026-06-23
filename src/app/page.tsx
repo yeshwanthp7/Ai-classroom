@@ -70,6 +70,14 @@ const steps = [
 
 export default function Home() {
   const [isLoading, setIsLoading] = useState(true)
+  const [joinCode, setJoinCode] = useState("")
+
+  const handleJoin = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (joinCode.trim()) {
+      window.location.href = `/session/${joinCode.trim().toUpperCase()}`
+    }
+  }
 
   const handleLoadingComplete = useCallback(() => {
     setIsLoading(false)
@@ -180,6 +188,26 @@ export default function Home() {
               >
                 Learn More
               </Link>
+            </div>
+
+            <div className="mt-12 flex flex-col items-center justify-center">
+              <p className="text-sm text-white/50 mb-3">Are you a student?</p>
+              <form onSubmit={handleJoin} className="flex items-center gap-2 max-w-sm w-full relative">
+                <input
+                  type="text"
+                  placeholder="Enter Session Code (e.g. CLASS-XXXX)"
+                  value={joinCode}
+                  onChange={(e) => setJoinCode(e.target.value)}
+                  className="w-full bg-[#1A1A1A] border border-white/10 rounded-xl px-4 py-3.5 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/50 transition-all uppercase"
+                />
+                <button
+                  type="submit"
+                  disabled={!joinCode.trim()}
+                  className="absolute right-2 px-4 py-2 bg-white/10 hover:bg-white/20 text-white text-sm font-bold rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Join
+                </button>
+              </form>
             </div>
           </div>
         </section>

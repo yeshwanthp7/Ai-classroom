@@ -288,6 +288,7 @@ export default function SessionPage() {
         localStorage.setItem("sessionTopics", JSON.stringify(session.topics || []))
         localStorage.setItem("teachingMode", session.teachingMode || "AI")
         localStorage.setItem("userRole", isTeacher ? "teacher" : "student")
+        if (studentId) localStorage.setItem("studentId", studentId)
       }
     } catch { /* localStorage blocked — live page will use defaults */ }
 
@@ -330,27 +331,10 @@ export default function SessionPage() {
   // 6. Transition state checker — triggers when Firebase status goes "Active"
   useEffect(() => {
     if ((session?.status === "Active") && !isClassroomActive && !isTransitioning) {
-      // Save session data to localStorage before navigating
-      try {
-        if (session) {
-          localStorage.setItem("sessionTitle", session.title || "Class Session")
-          localStorage.setItem("sessionSubject", session.subject || "General")
-          localStorage.setItem("sessionTopics", JSON.stringify(session.topics || []))
-          localStorage.setItem("teachingMode", session.teachingMode || "AI")
-          localStorage.setItem("userRole", isTeacher ? "teacher" : "student")
-        }
-      } catch { /* ok */ }
-
-      setIsTransitioning(true)
-      const timeout = setTimeout(() => {
-        setIsTransitioning(false)
-        console.log("Transition complete — navigating to /live")
-        router.push(`/session/${sessionCode}/live`)
-      }, 3000)
-
-      return () => clearTimeout(timeout)
+      triggerClassroomTransition()
     }
-  }, [session, isClassroomActive, isTransitioning])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.status, isClassroomActive, isTransitioning])
 
 
   // 7. Waiting Room: rotate help subtitles

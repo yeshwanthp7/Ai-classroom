@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useEffect, useState } from "react";
+import { useRef, useEffect, useState, useCallback } from "react";
 import { useFocusTracker } from "@/hooks/useFocusTracker";
 import { updateStudentEngagement } from "@/lib/session-service";
 
@@ -8,32 +8,47 @@ interface Props {
   sessionCode: string;
   studentId: string;
   enabled: boolean;
+  isGridMode?: boolean;
+  onLocalFocusUpdate?: (metrics: { score: number; status: "focused" | "distracted" | "away" | "offline" }) => void;
 }
 
-export default function StudentCamera({ sessionCode, studentId, enabled }: Props) {
+export default function StudentCamera({ sessionCode, studentId, enabled, isGridMode, onLocalFocusUpdate }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [denied, setDenied] = useState(false);
   const [active, setActive] = useState(false);
   const [warningLevel, setWarningLevel] = useState(0);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
-  const handleFocusUpdate = async (m: { score: number; status: "focused" | "distracted" | "away" | "offline" }) => {
+  const handleFocusUpdate = useCallback(async (m: { score: number; status: "focused" | "distracted" | "away" | "offline" }) => {
+    if (onLocalFocusUpdate) onLocalFocusUpdate(m);
     try {
       await updateStudentEngagement(sessionCode, studentId, m.score, m.status as any);
     } catch (e) {
       console.warn("Engagement update failed:", e);
     }
-  };
+  }, [sessionCode, studentId, onLocalFocusUpdate]);
 
   const metrics = useFocusTracker({ videoRef, onFocusUpdate: handleFocusUpdate, enabled: enabled && active });
 
   useEffect(() => {
     if (!enabled) return;
     const start = async () => {
+      // Wait for video ref to be ready
+      if (!videoRef.current) {
+        console.warn("Video ref not ready, retrying...");
+        setTimeout(start, 500);
+        return;
+      }
+
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240, facingMode: "user" } });
-        if (videoRef.current) { videoRef.current.srcObject = stream; setActive(true); }
-      } catch { setDenied(true); }
+        videoRef.current.srcObject = stream;
+        setActive(true);
+        console.log("Camera started successfully");
+      } catch (err) {
+        console.error("Camera failed:", err);
+        setDenied(true);
+      }
     };
     start();
     return () => {
@@ -80,9 +95,23 @@ export default function StudentCamera({ sessionCode, studentId, enabled }: Props
 
   return (
     <>
-      <video ref={videoRef} autoPlay playsInline muted className="hidden" width={320} height={240} />
-      {active && (
-        <div className="fixed bottom-4 left-4 z-50 flex items-center gap-2 bg-black/60 backdrop-blur-md rounded-full px-3 py-1.5 border border-white/10">
+      <video 
+        ref={videoRef} 
+        autoPlay 
+        playsInline 
+        muted 
+        className={isGridMode 
+          ? `absolute inset-0 w-full h-full object-cover z-0 transition-all duration-300 pointer-events-none ${active && enabled ? 'opacity-100' : 'opacity-0'}`
+          : `fixed bottom-24 right-6 w-48 h-36 object-cover rounded-2xl border-2 border-white/10 shadow-2xl z-40 transition-all duration-300 pointer-events-none ${active && enabled ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`
+        } 
+        width={320} 
+        height={240} 
+      />
+      {active && enabled && (
+        <div className={isGridMode 
+          ? "absolute top-2 right-2 z-10 flex items-center gap-1.5 bg-black/60 backdrop-blur-md px-2 py-1 rounded-full border border-white/10"
+          : "fixed bottom-[216px] right-8 z-50 flex items-center gap-2 bg-black/80 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/10 animate-in fade-in slide-in-from-bottom-2"
+        }>
           <div className={`w-2 h-2 rounded-full animate-pulse ${
             metrics.status === "focused" ? "bg-emerald-400" :
             metrics.status === "distracted" ? "bg-amber-400" :

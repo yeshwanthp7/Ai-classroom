@@ -278,11 +278,13 @@ export const updateStudentEngagement = async (
 ): Promise<void> => {
   try {
     const studentRef = doc(db, "sessions", sessionCode.trim().toUpperCase(), "students", studentId)
-    await updateDoc(studentRef, {
+    await setDoc(studentRef, {
+      id: studentId,
+      name: studentId, // Fallback if they didn't join properly
       engagementScore: score,
       status,
       lastActive: serverTimestamp(),
-    })
+    }, { merge: true })
   } catch (error) {
     console.error("Error updating engagement telemetry:", error)
     throw error
