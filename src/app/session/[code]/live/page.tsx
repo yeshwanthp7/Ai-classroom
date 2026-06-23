@@ -661,10 +661,10 @@ export default function LiveClassroomPage() {
                 <span className="text-[9px] font-bold">Active</span>
               </span>
             </h4>
-            <div className="flex-1 overflow-y-auto cscroll grid grid-cols-2 gap-2 content-start">
+            <div className="flex-1 overflow-y-auto cscroll grid grid-cols-1 gap-3 content-start">
               {/* Local User Tile */}
-              <div className={`relative aspect-square rounded-xl border ${localMetrics.status === "focused" ? "border-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.35)]" : localMetrics.status === "distracted" ? "border-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.35)]" : localMetrics.status === "away" ? "border-rose-500 shadow-[0_0_8px_rgba(239,68,68,0.35)]" : "border-gray-600"} bg-[#14141b] p-3 flex flex-col items-center justify-center gap-2 transition-all duration-500 overflow-hidden`}>
-                <div className="absolute inset-0 z-0 opacity-40 mix-blend-screen">
+              <div className={`relative aspect-video rounded-xl border ${localMetrics.status === "focused" ? "border-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.35)]" : localMetrics.status === "distracted" ? "border-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.35)]" : localMetrics.status === "away" ? "border-rose-500 shadow-[0_0_8px_rgba(239,68,68,0.35)]" : "border-gray-600"} bg-[#14141b] overflow-hidden transition-all duration-500`}>
+                <div className="absolute inset-0 z-0">
                   <StudentCamera
                     sessionCode={sessionCode}
                     studentId={studentId}
@@ -673,14 +673,12 @@ export default function LiveClassroomPage() {
                     onLocalFocusUpdate={setLocalMetrics}
                   />
                 </div>
-                <div className="w-10 h-10 rounded-full border border-white/10 flex items-center justify-center bg-black/40 backdrop-blur-sm text-xs font-bold text-white/60 relative z-10 mt-auto">
-                  {isTeacher ? "T" : "U"}
-                </div>
-                <span className="text-[10px] font-medium text-white shadow-black drop-shadow-md truncate max-w-full px-2 relative z-10 mb-auto">
+                <div className="absolute bottom-2 left-2 px-2.5 py-1 rounded-md bg-black/60 backdrop-blur-md border border-white/10 flex items-center justify-center text-[10px] font-medium text-white shadow-black drop-shadow-md z-10">
                   {isTeacher ? "Teacher (You)" : "You"}
-                </span>
-                <div className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-[#0a0a0f] border border-white/10 flex items-center justify-center text-[9px] font-mono text-white/60 z-10">
-                  {Math.round(localMetrics.score)}
+                </div>
+                <div className="absolute top-2 right-2 px-2 py-0.5 rounded bg-[#0a0a0f]/80 backdrop-blur-md border border-white/10 flex items-center justify-center text-[10px] font-mono text-white/80 z-10 gap-1.5">
+                  <div className={`w-1.5 h-1.5 rounded-full animate-pulse ${localMetrics.status === "focused" ? "bg-emerald-500" : localMetrics.status === "distracted" ? "bg-amber-500" : localMetrics.status === "away" ? "bg-rose-500" : "bg-gray-500"}`} />
+                  {Math.round(localMetrics.score)}%
                 </div>
               </div>
 
@@ -696,15 +694,16 @@ export default function LiveClassroomPage() {
                   "border-gray-600";
                 
                 return (
-                  <div key={student.id} className={`relative aspect-square rounded-xl border ${ringColor} bg-[#14141b] p-3 flex flex-col items-center justify-center gap-2 transition-all duration-500 overflow-hidden`}>
-                    <div className="w-10 h-10 rounded-full bg-[#1e1e2e] flex items-center justify-center text-xs font-bold text-white/60 relative z-10 mt-auto">
+                  <div key={student.id} className={`relative aspect-video rounded-xl border ${ringColor} bg-[#14141b] p-4 flex flex-col items-center justify-center gap-3 transition-all duration-500 overflow-hidden`}>
+                    <div className="w-12 h-12 rounded-full bg-[#1e1e2e] border border-white/5 flex items-center justify-center text-sm font-bold text-white/60 relative z-10 shadow-lg">
                       {student.name?.split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase() || "?"}
                     </div>
-                    <span className="text-[10px] text-white/50 truncate max-w-full px-1 relative z-10 mb-auto">
+                    <span className="text-xs font-medium text-white/60 truncate max-w-full px-1 relative z-10">
                       {student.name || "Student"}
                     </span>
-                    <div className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-[#0a0a0f] border border-white/10 flex items-center justify-center text-[9px] font-mono text-white/60 z-10">
-                      {score}
+                    <div className="absolute top-2 right-2 px-2 py-0.5 rounded bg-[#0a0a0f]/80 backdrop-blur-md border border-white/10 flex items-center justify-center text-[10px] font-mono text-white/80 z-10 gap-1.5">
+                      <div className={`w-1.5 h-1.5 rounded-full ${status === "focused" ? "bg-emerald-500" : status === "distracted" ? "bg-amber-500" : status === "away" ? "bg-rose-500" : "bg-gray-500"}`} />
+                      {score}%
                     </div>
                   </div>
                 );
