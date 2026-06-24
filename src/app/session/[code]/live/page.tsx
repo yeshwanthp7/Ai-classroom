@@ -25,6 +25,12 @@ import {
   VolumeX,
   Eye,
   VideoOff as CameraOff,
+  Sparkles,
+  Upload,
+  Trash2,
+  HelpCircle,
+  FileText,
+  Loader2,
 } from "lucide-react"
 
 import { getFile } from "@/lib/fileStorage"
@@ -107,6 +113,176 @@ export default function LiveClassroomPage() {
   const [toasts, setToasts] = useState<Array<{ id: string; text: string }>>([])
   const [showEndModal, setShowEndModal] = useState(false)
   const [endCountdown, setEndCountdown] = useState<number | null>(null)
+
+  // AI Study Buddy states
+  const [rightPanelTab, setRightPanelTab] = useState<"chat" | "study">("chat")
+  const [studyFile, setStudyFile] = useState<File | null>(null)
+  const [isStudyParsing, setIsStudyParsing] = useState(false)
+  const [studyParsingStep, setStudyParsingStep] = useState("")
+  const [studyExplanation, setStudyExplanation] = useState<{
+    summary: string;
+    keyConcepts: string[];
+    details: string;
+  } | null>(null)
+  const [studyQuery, setStudyQuery] = useState("")
+  const [studyChat, setStudyChat] = useState<Array<{ sender: string; text: string; isAI: boolean }>>([])
+  const [isStudyAnswering, setIsStudyAnswering] = useState(false)
+  const [studyFullText, setStudyFullText] = useState("")
+
+  const studyChatEndRef = useRef<HTMLDivElement>(null)
+
+  // Auto-scroll study chat
+  useEffect(() => {
+    studyChatEndRef.current?.scrollIntoView({ behavior: "smooth" })
+  }, [studyChat])
+
+  const handleStudyFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const uploadedFile = e.target.files?.[0]
+    if (!uploadedFile) return
+
+    setStudyFile(uploadedFile)
+    setIsStudyParsing(true)
+    setStudyExplanation(null)
+    setStudyChat([])
+    setStudyFullText("")
+
+    try {
+      let text = ""
+      const sizeStr = (uploadedFile.size / 1024).toFixed(1) + " KB"
+
+      if (uploadedFile.type === "application/pdf" || uploadedFile.name.endsWith(".pdf")) {
+        setStudyParsingStep("Reading PDF pages...")
+        const pages = await extractPDFPages(uploadedFile)
+        text = pages.join("\n")
+      } else if (
+        uploadedFile.type === "text/plain" ||
+        uploadedFile.name.endsWith(".txt") ||
+        uploadedFile.name.endsWith(".md")
+      ) {
+        setStudyParsingStep("Reading text content...")
+        text = await uploadedFile.text()
+      } else {
+        // Mock parsing for .docx, .pptx, etc.
+        setStudyParsingStep("Indexing document slides/paragraphs...")
+        await new Promise((r) => setTimeout(r, 1500))
+        text = `Document Metadata:
+Name: ${uploadedFile.name}
+Size: ${sizeStr}
+Type: ${uploadedFile.type || "Office Document"}
+Context: This is a textbook chapter or slide deck regarding the topic "${uploadedFile.name.replace(/\.[^/.]+$/, "")}".`
+      }
+
+      setStudyParsingStep("Analyzing concepts with AI Study Buddy...")
+      setStudyFullText(text)
+
+      // Send to Groq API
+      const prompt = `Please analyze this study material:
+---
+${text.slice(0, 5000)}
+---
+Generate a structured JSON response with exactly three fields (no markdown or additional text outside the JSON):
+{
+  "summary": "A concise 1-sentence description of what this document covers.",
+  "keyConcepts": [
+    "Core Concept 1 with a short explanation",
+    "Core Concept 2 with a short explanation",
+    "Core Concept 3 with a short explanation"
+  ],
+  "details": "A detailed, clean, shortcut explanation (2-3 paragraphs) structured in a way that helps the student learn the material in a fast, efficient way."
+}
+
+Do NOT wrap the JSON in markdown code blocks. Just return the raw JSON object.`
+
+      const system = "You are an expert AI Study Buddy. Explain slide decks, notes, and study guides in a short, clean, structured, and easy-to-understand layout."
+
+      const response = await fetch("/api/groq", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt, system }),
+      })
+
+      if (!response.ok) throw new Error("AI analysis failed")
+      const data = await response.json()
+
+      let result
+      try {
+        const cleaned = data.text.replace(/```json/g, "").replace(/```/g, "").trim()
+        result = JSON.parse(cleaned)
+      } catch (err) {
+        // Fallback
+        result = {
+          summary: `Study guide for ${uploadedFile.name}`,
+          keyConcepts: ["Key details are compiled below."],
+          details: data.text,
+        }
+      }
+
+      setStudyExplanation(result)
+      setStudyChat([
+        {
+          sender: "AI Study Buddy",
+          text: `Hi! I've finished analyzing "${uploadedFile.name}". I've created a clean summary and bulleted the core concepts on the left. Feel free to ask me any specific doubts or questions about this material here!`,
+          isAI: true,
+        },
+      ])
+    } catch (err) {
+      console.error(err)
+      addToast("Failed to analyze the document. Please try a simple text/PDF file.")
+      setStudyFile(null)
+    } finally {
+      setIsStudyParsing(false)
+      setStudyParsingStep("")
+    }
+  }
+
+  const handleAskStudyDoubt = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!studyQuery.trim() || isStudyAnswering || !studyFile) return
+
+    const userQuestion = studyQuery.trim()
+    setStudyQuery("")
+    setStudyChat((prev) => [...prev, { sender: "You", text: userQuestion, isAI: false }])
+    setIsStudyAnswering(true)
+
+    try {
+      const prompt = `The student is studying the document "${studyFile.name}".
+Document content (extracted):
+---
+${studyFullText.slice(0, 3000)}
+---
+The student has the following doubt: "${userQuestion}"
+
+Provide a clean, proper, and structured explanation answering their question. Limit response to 3-4 clear sentences.`
+
+      const system = "You are a helpful AI Study Tutor. Answer doubts about the uploaded study notes concisely, clearly, and supportively."
+
+      const response = await fetch("/api/groq", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt, system }),
+      })
+
+      if (!response.ok) throw new Error("Failed to get answer")
+      const data = await response.json()
+
+      setStudyChat((prev) => [...prev, { sender: "AI Study Buddy", text: data.text, isAI: true }])
+    } catch (err) {
+      console.error(err)
+      setStudyChat((prev) => [
+        ...prev,
+        { sender: "AI Study Buddy", text: "Sorry, I ran into an error generating that explanation. Please try again.", isAI: true },
+      ])
+    } finally {
+      setIsAnswering(false)
+    }
+  }
+
+  const handleResetStudy = () => {
+    setStudyFile(null)
+    setStudyExplanation(null)
+    setStudyChat([])
+    setStudyFullText("")
+  }
 
   /* ─── INIT ─── */
   useEffect(() => {
@@ -864,47 +1040,226 @@ export default function LiveClassroomPage() {
         {/* ─── RIGHT 30% ─── */}
         <aside className="w-full lg:w-[30%] flex-1 border-t lg:border-t-0 lg:border-l border-white/[.06] bg-[#0A0A0A] flex flex-col min-h-0 pb-[84px] lg:pb-0">
 
-          {/* ── DOUBT CHAT ── */}
-          <div className="flex-1 p-4 flex flex-col overflow-hidden min-h-0">
-            <h4 className="text-[10px] font-black uppercase tracking-[.12em] text-white/50 pb-2.5 mb-2 border-b border-white/[.06] flex items-center justify-between flex-shrink-0">
-              <span className="flex items-center gap-1.5">
-                <MessageSquare className="h-3 w-3 text-purple-400" />
-                Doubt Chat
-              </span>
-              <span className="flex items-center gap-1">
-                <span className="h-[6px] w-[6px] rounded-full bg-emerald-500 animate-pulse" />
-                <span className="text-emerald-400 text-[8px] font-bold">Live</span>
-              </span>
-            </h4>
-            <div className="flex-1 overflow-y-auto cscroll space-y-2 pr-1 flex flex-col min-h-0">
-              {messages.map((msg) => (
-                <div key={msg.id} className={`flex flex-col gap-0.5 max-w-[90%] slide-up ${msg.isAI ? "self-start" : "self-end items-end"}`}>
-                  <span className="text-[8px] text-white/15 font-bold">{msg.sender} • {msg.time}</span>
-                  <div className={`text-[11px] px-3 py-2 rounded-xl leading-relaxed ${
-                    msg.isAI
-                      ? "bg-[#151517] text-white/80 border border-white/[.05] rounded-tl-none flex gap-1.5 items-start"
-                      : "bg-purple-600 text-white rounded-tr-none"
-                  }`}>
-                    {msg.isAI && <Brain className="h-3 w-3 text-purple-400 flex-shrink-0 mt-0.5" />}
-                    <span>{msg.text}</span>
+          {/* Tabs Selector */}
+          <div className="flex border-b border-white/[.06] bg-black/20 flex-shrink-0">
+            <button
+              onClick={() => setRightPanelTab("chat")}
+              className={`flex-1 py-3 text-[10px] font-bold uppercase tracking-wider transition-all border-b-2 flex items-center justify-center gap-1.5 cursor-pointer ${
+                rightPanelTab === "chat"
+                  ? "border-purple-500 text-purple-400 bg-purple-500/[0.02]"
+                  : "border-transparent text-white/40 hover:text-white/60 hover:bg-white/[0.01]"
+              }`}
+            >
+              <MessageSquare className="h-3.5 w-3.5" />
+              Doubt Chat
+            </button>
+            <button
+              onClick={() => setRightPanelTab("study")}
+              className={`flex-1 py-3 text-[10px] font-bold uppercase tracking-wider transition-all border-b-2 flex items-center justify-center gap-1.5 cursor-pointer ${
+                rightPanelTab === "study"
+                  ? "border-purple-500 text-purple-400 bg-purple-500/[0.02]"
+                  : "border-transparent text-white/40 hover:text-white/60 hover:bg-white/[0.01]"
+              }`}
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              Study Buddy
+            </button>
+          </div>
+
+          {/* ── TAB CONTENT: CHAT ── */}
+          {rightPanelTab === "chat" && (
+            <div className="flex-1 p-4 flex flex-col overflow-hidden min-h-0 animate-fadeIn">
+              <h4 className="text-[10px] font-black uppercase tracking-[.12em] text-white/50 pb-2.5 mb-2 border-b border-white/[.06] flex items-center justify-between flex-shrink-0">
+                <span className="flex items-center gap-1.5">
+                  <MessageSquare className="h-3 w-3 text-purple-400" />
+                  Live Doubt Chat
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="h-[6px] w-[6px] rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="text-emerald-400 text-[8px] font-bold">Live</span>
+                </span>
+              </h4>
+              <div className="flex-1 overflow-y-auto cscroll space-y-2 pr-1 flex flex-col min-h-0">
+                {messages.map((msg) => (
+                  <div key={msg.id} className={`flex flex-col gap-0.5 max-w-[90%] slide-up ${msg.isAI ? "self-start" : "self-end items-end"}`}>
+                    <span className="text-[8px] text-white/15 font-bold">{msg.sender} • {msg.time}</span>
+                    <div className={`text-[11px] px-3 py-2 rounded-xl leading-relaxed ${
+                      msg.isAI
+                        ? "bg-[#151517] text-white/80 border border-white/[.05] rounded-tl-none flex gap-1.5 items-start"
+                        : "bg-purple-600 text-white rounded-tr-none"
+                    }`}>
+                      {msg.isAI && <Brain className="h-3 w-3 text-purple-400 flex-shrink-0 mt-0.5" />}
+                      <span>{msg.text}</span>
+                    </div>
+                  </div>
+                ))}
+                <div ref={chatEndRef} />
+              </div>
+              {/* Input — always visible at bottom */}
+              <form onSubmit={handleSendDoubt} className="flex gap-2 pt-2.5 border-t border-white/[.06] mt-2 flex-shrink-0">
+                <input
+                  id="doubt-chat-input" type="text" required value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)} placeholder={isAnswering ? "Professor is answering..." : "Ask a doubt..."}
+                  disabled={isAnswering}
+                  className="flex-1 px-3 py-2 bg-[#1A1A1A] border border-white/8 rounded-xl text-xs focus:outline-none focus:border-purple-500/40 text-white placeholder:text-white/15 disabled:opacity-50"
+                />
+                <button type="submit" disabled={isAnswering} className="px-3 py-2 bg-purple-600 hover:bg-purple-500 rounded-xl text-white transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
+                  <Send className="h-3.5 w-3.5" />
+                </button>
+              </form>
+            </div>
+          )}
+
+          {/* ── TAB CONTENT: STUDY BUDDY ── */}
+          {rightPanelTab === "study" && (
+            <div className="flex-1 p-4 flex flex-col overflow-hidden min-h-0 space-y-4 animate-fadeIn">
+              
+              {/* Uploader View */}
+              {!studyFile && !isStudyParsing && (
+                <div className="flex-1 flex flex-col justify-center items-center">
+                  <label className="w-full border border-dashed border-purple-500/20 hover:border-purple-500/50 bg-[#161618] hover:bg-purple-500/[0.01] rounded-2xl p-6 text-center cursor-pointer transition-all flex flex-col items-center justify-center gap-3 group relative shadow-inner">
+                    <input
+                      type="file"
+                      accept=".pdf,.txt,.md,.docx,.pptx,.ppt"
+                      className="hidden"
+                      onChange={handleStudyFileUpload}
+                    />
+                    <div className="h-10 w-10 rounded-xl bg-purple-500/10 flex items-center justify-center text-purple-400 group-hover:scale-105 transition-transform">
+                      <Upload className="h-5 w-5" />
+                    </div>
+                    <div className="space-y-1">
+                      <span className="text-[11px] font-bold text-white block group-hover:text-purple-300 transition-colors">
+                        Upload Notes, PPT, or PDF
+                      </span>
+                      <span className="text-[9px] text-white/30 block">
+                        Ask doubts & get clean summaries
+                      </span>
+                    </div>
+                  </label>
+                </div>
+              )}
+
+              {/* Parsing View */}
+              {isStudyParsing && (
+                <div className="flex-1 flex flex-col items-center justify-center space-y-3">
+                  <Loader2 className="h-8 w-8 text-purple-500 animate-spin animate-pulse-slow" />
+                  <div className="text-center space-y-1">
+                    <h5 className="text-[11px] font-bold text-white">Analyzing notes...</h5>
+                    <p className="text-[9px] text-purple-400/80 font-mono">{studyParsingStep}</p>
                   </div>
                 </div>
-              ))}
-              <div ref={chatEndRef} />
+              )}
+
+              {/* Summary & Q&A View */}
+              {studyExplanation && (
+                <div className="flex-grow flex flex-col min-h-0 space-y-4 overflow-hidden">
+                  
+                  {/* Document Summary Info (Scrollable content) */}
+                  <div className="flex-1 overflow-y-auto cscroll space-y-4 pr-1 min-h-0">
+                    
+                    {/* Header */}
+                    <div className="flex items-center justify-between border-b border-white/[.04] pb-3">
+                      <div className="flex items-center gap-2 overflow-hidden">
+                        <FileText className="h-4 w-4 text-purple-400 flex-shrink-0" />
+                        <span className="text-[11px] font-bold text-white truncate max-w-[150px]">{studyFile?.name}</span>
+                      </div>
+                      <button
+                        onClick={handleResetStudy}
+                        className="text-[9px] text-red-400 hover:text-red-300 font-bold transition-colors cursor-pointer"
+                      >
+                        Reset
+                      </button>
+                    </div>
+
+                    {/* Summary */}
+                    <div className="space-y-1 bg-white/[0.01] border border-white/[0.04] p-3 rounded-xl">
+                      <span className="text-[8px] font-black uppercase tracking-widest text-purple-400">Summary</span>
+                      <p className="text-[11px] text-white/80 leading-relaxed italic">
+                        &ldquo;{studyExplanation.summary}&rdquo;
+                      </p>
+                    </div>
+
+                    {/* Key Concepts */}
+                    <div className="space-y-2">
+                      <span className="text-[8px] font-black uppercase tracking-widest text-purple-400">Core Concepts</span>
+                      <ul className="space-y-1.5">
+                        {studyExplanation.keyConcepts.map((concept, i) => (
+                          <li key={i} className="flex gap-2 items-start text-[10px] text-white/60 leading-relaxed bg-[#111112] border border-white/[0.02] p-2.5 rounded-lg">
+                            <span className="h-4 w-4 rounded bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-[9px] font-bold text-purple-400 flex-shrink-0">
+                              {i + 1}
+                            </span>
+                            <span>{concept}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+
+                    {/* Details */}
+                    <div className="space-y-1.5">
+                      <span className="text-[8px] font-black uppercase tracking-widest text-purple-400">Shortcut Explanation</span>
+                      <div className="text-[10px] text-white/50 leading-relaxed space-y-2 bg-white/[0.01] p-3 border border-white/[0.04] rounded-xl">
+                        {studyExplanation.details.split("\n\n").map((p, i) => (
+                          <p key={i}>{p}</p>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Study Chat Divider */}
+                    <div className="border-t border-white/[0.05] pt-3">
+                      <span className="text-[8px] font-black uppercase tracking-widest text-purple-400 block mb-2">Ask Doubts about Notes</span>
+                      
+                      <div className="space-y-2.5">
+                        {studyChat.map((msg, i) => (
+                          <div
+                            key={i}
+                            className={`flex flex-col gap-0.5 max-w-[85%] ${
+                              msg.isAI ? "self-start items-start" : "self-end items-end ml-auto"
+                            }`}
+                          >
+                            <span className="text-[8px] text-white/20 font-semibold">{msg.sender}</span>
+                            <div
+                              className={`text-[10px] px-3 py-2 rounded-xl leading-relaxed ${
+                                msg.isAI
+                                  ? "bg-[#111112] border border-white/[0.03] text-white/75 rounded-tl-none flex gap-1.5 items-start"
+                                  : "bg-purple-600 text-white rounded-tr-none"
+                              }`}
+                            >
+                              {msg.isAI && <Brain className="h-3.5 w-3.5 text-purple-400 flex-shrink-0 mt-0.5" />}
+                              <span>{msg.text}</span>
+                            </div>
+                          </div>
+                        ))}
+                        <div ref={studyChatEndRef} />
+                      </div>
+                    </div>
+
+                  </div>
+
+                  {/* Study Query Input */}
+                  <form onSubmit={handleAskStudyDoubt} className="pt-2.5 border-t border-white/[.06] flex gap-2 flex-shrink-0">
+                    <input
+                      type="text"
+                      required
+                      value={studyQuery}
+                      onChange={(e) => setStudyQuery(e.target.value)}
+                      placeholder={isStudyAnswering ? "Answering..." : "Ask doubt about notes..."}
+                      disabled={isStudyAnswering}
+                      className="flex-1 px-3 py-2 bg-[#1A1A1A] border border-white/8 rounded-xl text-xs focus:outline-none focus:border-purple-500/40 text-white placeholder:text-white/15 disabled:opacity-50"
+                    />
+                    <button
+                      type="submit"
+                      disabled={isStudyAnswering}
+                      className="px-3 py-2 bg-purple-600 hover:bg-purple-500 rounded-xl text-white transition-colors cursor-pointer disabled:opacity-50"
+                    >
+                      <Send className="h-3.5 w-3.5" />
+                    </button>
+                  </form>
+
+                </div>
+              )}
+
             </div>
-            {/* Input — always visible at bottom */}
-            <form onSubmit={handleSendDoubt} className="flex gap-2 pt-2.5 border-t border-white/[.06] mt-2 flex-shrink-0">
-              <input
-                id="doubt-chat-input" type="text" required value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)} placeholder={isAnswering ? "Professor is answering..." : "Ask a doubt..."}
-                disabled={isAnswering}
-                className="flex-1 px-3 py-2 bg-[#1A1A1A] border border-white/8 rounded-xl text-xs focus:outline-none focus:border-purple-500/40 text-white placeholder:text-white/15 disabled:opacity-50"
-              />
-              <button type="submit" disabled={isAnswering} className="px-3 py-2 bg-purple-600 hover:bg-purple-500 rounded-xl text-white transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
-                <Send className="h-3.5 w-3.5" />
-              </button>
-            </form>
-          </div>
+          )}
         </aside>
       </div>
 

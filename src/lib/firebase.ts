@@ -25,6 +25,7 @@ const activeConfig = hasApiKey
       messagingSenderId: "1234567890",
       appId: "1:1234567890:web:1234567890",
     }
+console.log("API KEY:", process.env.NEXT_PUBLIC_FIREBASE_API_KEY)
 
 const app = getApps().length === 0 ? initializeApp(activeConfig) : getApp()
 

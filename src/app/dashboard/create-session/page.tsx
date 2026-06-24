@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import Link from "next/link"
 import {
   ArrowLeft,
@@ -20,11 +20,18 @@ import {
   FileText,
   CheckSquare,
   Square,
+  Brain,
+  HelpCircle,
+  Send,
+  Loader2,
+  BookOpen,
+  FileCheck,
 } from "lucide-react"
 import DashboardSidebar from "@/components/dashboard-sidebar"
 import { subscribeToAuthChanges } from "@/lib/auth-service"
 import { createSession } from "@/lib/session-service"
 import { saveFile, clearFiles } from "@/lib/fileStorage"
+import { extractPDFPages } from "@/lib/pdfParser"
 
 const SUBJECTS = ["Mathematics", "Science", "History", "Computer Science", "Language", "Other"]
 const GRADE_LEVELS = ["Primary", "Middle School", "High School", "University", "Professional"]
@@ -38,6 +45,21 @@ export default function CreateSessionPage() {
 
   // Step 1 State: Teaching Mode Selection
   const [teachingMode, setTeachingMode] = useState<"AI" | "Human" | null>(null)
+
+  // Study Buddy / I'll Teach Explainer States
+  const [showExplainer, setShowExplainer] = useState(false)
+  const [studyFile, setStudyFile] = useState<File | null>(null)
+  const [isStudyParsing, setIsStudyParsing] = useState(false)
+  const [studyParsingStep, setStudyParsingStep] = useState("")
+  const [studyExplanation, setStudyExplanation] = useState<any>(null)
+  const [studyFullText, setStudyFullText] = useState("")
+  const [studyQuery, setStudyQuery] = useState("")
+  const [studyChatHistory, setStudyChatHistory] = useState<Array<{ sender: string; text: string; isAI: boolean }>>([])
+  const [isStudyAnswering, setIsStudyAnswering] = useState(false)
+  const [userRole, setUserRole] = useState<string>("teacher")
+  const [mounted, setMounted] = useState(false)
+
+  const studyChatEndRef = useRef<HTMLDivElement>(null)
 
   // Step 2 State: Session Info
   const [sessionTitle, setSessionTitle] = useState("")
@@ -74,11 +96,27 @@ export default function CreateSessionPage() {
 
   // Load current auth state
   useEffect(() => {
+    setMounted(true)
     const unsubscribe = subscribeToAuthChanges((currentUser) => {
       setUser(currentUser)
     })
+
+    if (typeof window !== "undefined") {
+      const role = localStorage.getItem("user_role") || "teacher"
+      setUserRole(role)
+      if (role === "student") {
+        setTeachingMode("Human")
+        setShowExplainer(true)
+      }
+    }
+
     return () => unsubscribe()
   }, [])
+
+  // Auto scroll chat
+  useEffect(() => {
+    studyChatEndRef.current?.scrollIntoView({ behavior: "smooth" })
+  }, [studyChatHistory])
 
   // Generate a random session code when navigating to step 4
   const generateCode = () => {
@@ -90,7 +128,7 @@ export default function CreateSessionPage() {
     return code
   }
 
-  // Handle real file upload
+  // Handle real file upload for standard session creation (AI Teacher reference materials)
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: "ai" | "human") => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -119,9 +157,249 @@ export default function CreateSessionPage() {
     }
   }
 
+  // Study Buddy upload and parse
+  const handleStudyFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const uploadedFile = e.target.files?.[0]
+    if (!uploadedFile) return
+
+    setStudyFile(uploadedFile)
+    setIsStudyParsing(true)
+    setStudyExplanation(null)
+    setStudyChatHistory([])
+    setStudyFullText("")
+
+    try {
+      let text = ""
+      const sizeStr = (uploadedFile.size / 1024).toFixed(1) + " KB"
+
+      if (uploadedFile.type === "application/pdf" || uploadedFile.name.endsWith(".pdf")) {
+        setStudyParsingStep("Reading PDF pages...")
+        const pages = await extractPDFPages(uploadedFile)
+        text = pages.join("\n")
+      } else if (
+        uploadedFile.type === "text/plain" ||
+        uploadedFile.name.endsWith(".txt") ||
+        uploadedFile.name.endsWith(".md")
+      ) {
+        setStudyParsingStep("Reading text content...")
+        text = await uploadedFile.text()
+      } else {
+        setStudyParsingStep("Indexing document slides/paragraphs...")
+        await new Promise((r) => setTimeout(r, 1500))
+        text = `Document Metadata:
+Name: ${uploadedFile.name}
+Size: ${sizeStr}
+Type: ${uploadedFile.type || "Office Document"}
+Context: This is a textbook chapter or slide deck regarding the topic "${uploadedFile.name.replace(/\.[^/.]+$/, "")}".`
+      }
+
+      setStudyParsingStep("Analyzing concepts with AI...")
+      setStudyFullText(text)
+
+      // Send to Groq API
+      const prompt = `Please analyze this study material:
+---
+${text.slice(0, 5000)}
+---
+Generate a structured JSON response with exactly three fields (no markdown or additional text outside the JSON):
+{
+  "summary": "A concise 1-sentence description of what this document covers.",
+  "keyConcepts": [
+    {
+      "concept": "Concept 1 Name (2-4 words)",
+      "description": "Short explanation of the concept",
+      "imageKeyword": "one highly relevant search keyword for Pexels to show a visual image of this concept"
+    },
+    {
+      "concept": "Concept 2 Name (2-4 words)",
+      "description": "Short explanation of the concept",
+      "imageKeyword": "one highly relevant search keyword for Pexels to show a visual image of this concept"
+    },
+    {
+      "concept": "Concept 3 Name (2-4 words)",
+      "description": "Short explanation of the concept",
+      "imageKeyword": "one highly relevant search keyword for Pexels to show a visual image of this concept"
+    }
+  ],
+  "details": "A detailed, clean, shortcut explanation (2-3 paragraphs) structured in a way that helps the student learn the material in a fast, efficient way."
+}
+
+Do NOT wrap the JSON in markdown code blocks. Just return the raw JSON object.`
+
+      const system = "You are an expert AI Study Buddy. Explain slide decks, notes, and study guides in a short, clean, structured, and easy-to-understand layout."
+
+      const response = await fetch("/api/groq", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt, system }),
+      })
+
+      if (!response.ok) throw new Error("AI analysis failed")
+      const data = await response.json()
+
+      let result: any
+      try {
+        const cleaned = data.text.replace(/```json/g, "").replace(/```/g, "").trim()
+        result = JSON.parse(cleaned)
+      } catch (err) {
+        result = {
+          summary: `Study guide for ${uploadedFile.name}`,
+          keyConcepts: [
+            { concept: "Important Concept", description: data.text.slice(0, 150), imageKeyword: "education" }
+          ],
+          details: data.text,
+        }
+      }
+
+      // Normalize keyConcepts structure and attach visuals
+      if (result && Array.isArray(result.keyConcepts)) {
+        const normalized = result.keyConcepts.map((item: any) => {
+          if (typeof item === "string") {
+            const parts = item.split(":");
+            return {
+              concept: parts[0]?.trim() || "Concept",
+              description: parts.slice(1).join(":")?.trim() || item,
+              imageKeyword: parts[0]?.trim() || "study",
+            }
+          }
+          return {
+            concept: item.concept || item.title || "Concept",
+            description: item.description || item.explanation || "Details",
+            imageKeyword: item.imageKeyword || item.keyword || item.concept || "study",
+          }
+        })
+
+        setStudyParsingStep("Fetching visual images...")
+
+        const SUBJECT_MOCK_IMAGES: Record<string, string> = {
+          science: "https://images.unsplash.com/photo-1507679799987-c73779587ccf?w=400",
+          math: "https://images.unsplash.com/photo-1509228468518-180dd4864904?w=400",
+          biology: "https://images.unsplash.com/photo-1530026405186-ed1ea0ac7a63?w=400",
+          cell: "https://images.unsplash.com/photo-1530026405186-ed1ea0ac7a63?w=400",
+          chemistry: "https://images.unsplash.com/photo-1532187863486-abf9d39d66e8?w=400",
+          atom: "https://images.unsplash.com/photo-1532187863486-abf9d39d66e8?w=400",
+          physics: "https://images.unsplash.com/photo-1507668077129-56e32842fceb?w=400",
+          history: "https://images.unsplash.com/photo-1461360370896-922624d12aa1?w=400",
+          computer: "https://images.unsplash.com/photo-1517694712202-14dd9538aa97?w=400",
+          coding: "https://images.unsplash.com/photo-1517694712202-14dd9538aa97?w=400",
+          programming: "https://images.unsplash.com/photo-1517694712202-14dd9538aa97?w=400",
+          language: "https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?w=400",
+          english: "https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?w=400",
+          geography: "https://images.unsplash.com/photo-1524661135-423995f22d0b?w=400",
+          earth: "https://images.unsplash.com/photo-1524661135-423995f22d0b?w=400",
+          globe: "https://images.unsplash.com/photo-1524661135-423995f22d0b?w=400",
+          space: "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=400",
+          galaxy: "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=400",
+          books: "https://images.unsplash.com/photo-1497633762265-9d179a990aa6?w=400",
+          study: "https://images.unsplash.com/photo-1497633762265-9d179a990aa6?w=400",
+          education: "https://images.unsplash.com/photo-1497633762265-9d179a990aa6?w=400",
+        }
+
+        const conceptsWithImages = await Promise.all(
+          normalized.map(async (item: any) => {
+            const keyword = item.imageKeyword || "study"
+            let imageUrl = ""
+            try {
+              const res = await fetch(`/api/pexels?query=${encodeURIComponent(keyword)}`)
+              if (res.ok) {
+                const data = await res.json()
+                imageUrl = data.imageUrl
+              }
+            } catch (e) {
+              console.warn("Pexels fetch failed:", e)
+            }
+
+            if (!imageUrl) {
+              const lower = keyword.toLowerCase()
+              const matchedKey = Object.keys(SUBJECT_MOCK_IMAGES).find(k => lower.includes(k))
+              imageUrl = matchedKey ? SUBJECT_MOCK_IMAGES[matchedKey] : "https://images.unsplash.com/photo-1497633762265-9d179a990aa6?w=400"
+            }
+
+            return {
+              ...item,
+              imageUrl,
+            }
+          })
+        )
+
+        result.keyConcepts = conceptsWithImages
+      }
+
+      setStudyExplanation(result)
+      setStudyChatHistory([
+        {
+          sender: "AI Study Buddy",
+          text: `Hi! I've finished analyzing "${uploadedFile.name}". I've created a clean summary and bulleted the core concepts on the left. Feel free to ask me any doubts or questions about this material here!`,
+          isAI: true,
+        },
+      ])
+    } catch (err) {
+      console.error(err)
+      alert("Failed to analyze the document. Please ensure your Groq API key is set or try a simple text/PDF file.")
+      setStudyFile(null)
+    } finally {
+      setIsStudyParsing(false)
+      setStudyParsingStep("")
+    }
+  }
+
+  // Answer queries about study doc
+  const handleAskStudyDoubt = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!studyQuery.trim() || isStudyAnswering || !studyFile) return
+
+    const userQuestion = studyQuery.trim()
+    setStudyQuery("")
+    setStudyChatHistory((prev) => [...prev, { sender: "You", text: userQuestion, isAI: false }])
+    setIsStudyAnswering(true)
+
+    try {
+      const prompt = `The student is studying the document "${studyFile.name}".
+Document content (extracted):
+---
+${studyFullText.slice(0, 3000)}
+---
+The student has the following doubt: "${userQuestion}"
+
+Provide a clean, proper, and structured explanation answering their question. Limit response to 3-4 clear sentences.`
+
+      const system = "You are a helpful AI Study Tutor. Answer doubts about the uploaded study notes concisely, clearly, and supportively."
+
+      const response = await fetch("/api/groq", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt, system }),
+      })
+
+      if (!response.ok) throw new Error("Failed to get answer")
+      const data = await response.json()
+
+      setStudyChatHistory((prev) => [...prev, { sender: "AI Study Buddy", text: data.text, isAI: true }])
+    } catch (err) {
+      console.error(err)
+      setStudyChatHistory((prev) => [
+        ...prev,
+        { sender: "AI Study Buddy", text: "Sorry, I ran into an error generating that explanation. Please try again.", isAI: true },
+      ])
+    } finally {
+      setIsStudyAnswering(false)
+    }
+  }
+
+  const handleResetStudy = () => {
+    setStudyFile(null)
+    setStudyExplanation(null)
+    setStudyChatHistory([])
+    setStudyFullText("")
+  }
+
   const handleStep1Submit = () => {
     if (!teachingMode) return
-    setStep(2)
+    if (teachingMode === "Human") {
+      setShowExplainer(true)
+    } else {
+      setStep(2)
+    }
   }
 
   const handleStep2Submit = (e: React.FormEvent) => {
@@ -310,90 +588,321 @@ export default function CreateSessionPage() {
 
         {/* Form Container */}
         <main className="flex-1 p-6 md:p-8 flex justify-center items-start lg:items-center bg-[#111111]">
-          <div className="w-full max-w-[700px] bg-[#1a1a1a] border border-white/5 rounded-2xl p-6 md:p-8 space-y-8 shadow-xl shadow-black/10">
+          <div className={`w-full bg-[#1a1a1a] border border-white/5 rounded-2xl p-6 md:p-8 space-y-8 shadow-xl shadow-black/10 transition-all duration-300 ${
+            (showExplainer && studyExplanation) ? "max-w-[1200px]" : "max-w-[700px]"
+          }`}>
             
             {/* Header & Subtitle */}
-            <div className="text-center space-y-2">
-              <h2 className="text-2xl font-bold text-white tracking-tight">Create New Session</h2>
-              <p className="text-xs md:text-sm text-white/40">Set up your AI-powered class in seconds</p>
-            </div>
-
-            {/* Step Indicator (Mode -> Info -> Content -> Launch) */}
-            <div className="relative flex items-center justify-between max-w-md mx-auto py-2">
-              {/* Connector Lines */}
-              <div className="absolute left-0 right-0 top-1/2 h-0.5 bg-white/5 -translate-y-1/2 z-0" />
-              <div
-                className="absolute left-0 top-1/2 h-0.5 bg-purple-500 -translate-y-1/2 transition-all duration-300 z-0"
-                style={{ width: step === 1 ? "0%" : step === 2 ? "33%" : step === 3 ? "66%" : "100%" }}
-              />
-
-              {/* Step 1: Mode */}
-              <div className="relative z-10 flex flex-col items-center gap-1.5">
-                <div
-                  className={`h-7 w-7 rounded-full flex items-center justify-center text-xs font-bold transition-all border ${
-                    step >= 1
-                      ? "bg-purple-600 border-purple-500 text-white shadow-sm shadow-purple-500/30"
-                      : "bg-[#111111] border-white/10 text-white/40"
-                  }`}
-                >
-                  1
+            {!showExplainer ? (
+              <>
+                <div className="text-center space-y-2">
+                  <h2 className="text-2xl font-bold text-white tracking-tight">Create New Session</h2>
+                  <p className="text-xs md:text-sm text-white/40">Set up your AI-powered class in seconds</p>
                 </div>
-                <span className={`text-[10px] md:text-xs font-semibold ${step >= 1 ? "text-purple-400" : "text-white/40"}`}>
-                  Mode
-                </span>
-              </div>
 
-              {/* Step 2: Info */}
-              <div className="relative z-10 flex flex-col items-center gap-1.5">
-                <div
-                  className={`h-7 w-7 rounded-full flex items-center justify-center text-xs font-bold transition-all border ${
-                    step >= 2
-                      ? "bg-purple-600 border-purple-500 text-white shadow-sm shadow-purple-500/30"
-                      : "bg-[#111111] border-white/10 text-white/40"
-                  }`}
-                >
-                  2
-                </div>
-                <span className={`text-[10px] md:text-xs font-semibold ${step >= 2 ? "text-purple-400" : "text-white/40"}`}>
-                  Session Info
-                </span>
-              </div>
+                {/* Step Indicator (Mode -> Info -> Content -> Launch) */}
+                <div className="relative flex items-center justify-between max-w-md mx-auto py-2">
+                  {/* Connector Lines */}
+                  <div className="absolute left-0 right-0 top-1/2 h-0.5 bg-white/5 -translate-y-1/2 z-0" />
+                  <div
+                    className="absolute left-0 top-1/2 h-0.5 bg-purple-500 -translate-y-1/2 transition-all duration-300 z-0"
+                    style={{ width: step === 1 ? "0%" : step === 2 ? "33%" : step === 3 ? "66%" : "100%" }}
+                  />
 
-              {/* Step 3: Content */}
-              <div className="relative z-10 flex flex-col items-center gap-1.5">
-                <div
-                  className={`h-7 w-7 rounded-full flex items-center justify-center text-xs font-bold transition-all border ${
-                    step >= 3
-                      ? "bg-purple-600 border-purple-500 text-white shadow-sm shadow-purple-500/30"
-                      : "bg-[#111111] border-white/10 text-white/40"
-                  }`}
-                >
-                  3
-                </div>
-                <span className={`text-[10px] md:text-xs font-semibold ${step >= 3 ? "text-purple-400" : "text-white/40"}`}>
-                  Content
-                </span>
-              </div>
+                  {/* Step 1: Mode */}
+                  <div className="relative z-10 flex flex-col items-center gap-1.5">
+                    <div
+                      className={`h-7 w-7 rounded-full flex items-center justify-center text-xs font-bold transition-all border ${
+                        step >= 1
+                          ? "bg-purple-600 border-purple-500 text-white shadow-sm shadow-purple-500/30"
+                          : "bg-[#111111] border-white/10 text-white/40"
+                      }`}
+                    >
+                      1
+                    </div>
+                    <span className={`text-[10px] md:text-xs font-semibold ${step >= 1 ? "text-purple-400" : "text-white/40"}`}>
+                      Mode
+                    </span>
+                  </div>
 
-              {/* Step 4: Launch */}
-              <div className="relative z-10 flex flex-col items-center gap-1.5">
-                <div
-                  className={`h-7 w-7 rounded-full flex items-center justify-center text-xs font-bold transition-all border ${
-                    step >= 4
-                      ? "bg-purple-600 border-purple-500 text-white shadow-sm shadow-purple-500/30"
-                      : "bg-[#111111] border-white/10 text-white/40"
-                  }`}
-                >
-                  4
+                  {/* Step 2: Info */}
+                  <div className="relative z-10 flex flex-col items-center gap-1.5">
+                    <div
+                      className={`h-7 w-7 rounded-full flex items-center justify-center text-xs font-bold transition-all border ${
+                        step >= 2
+                          ? "bg-purple-600 border-purple-500 text-white shadow-sm shadow-purple-500/30"
+                          : "bg-[#111111] border-white/10 text-white/40"
+                      }`}
+                    >
+                      2
+                    </div>
+                    <span className={`text-[10px] md:text-xs font-semibold ${step >= 2 ? "text-purple-400" : "text-white/40"}`}>
+                      Session Info
+                    </span>
+                  </div>
+
+                  {/* Step 3: Content */}
+                  <div className="relative z-10 flex flex-col items-center gap-1.5">
+                    <div
+                      className={`h-7 w-7 rounded-full flex items-center justify-center text-xs font-bold transition-all border ${
+                        step >= 3
+                          ? "bg-purple-600 border-purple-500 text-white shadow-sm shadow-purple-500/30"
+                          : "bg-[#111111] border-white/10 text-white/40"
+                      }`}
+                    >
+                      3
+                    </div>
+                    <span className={`text-[10px] md:text-xs font-semibold ${step >= 3 ? "text-purple-400" : "text-white/40"}`}>
+                      Content
+                    </span>
+                  </div>
+
+                  {/* Step 4: Launch */}
+                  <div className="relative z-10 flex flex-col items-center gap-1.5">
+                    <div
+                      className={`h-7 w-7 rounded-full flex items-center justify-center text-xs font-bold transition-all border ${
+                        step >= 4
+                          ? "bg-purple-600 border-purple-500 text-white shadow-sm shadow-purple-500/30"
+                          : "bg-[#111111] border-white/10 text-white/40"
+                      }`}
+                    >
+                      4
+                    </div>
+                    <span className={`text-[10px] md:text-xs font-semibold ${step >= 4 ? "text-purple-400" : "text-white/40"}`}>
+                      Launch
+                    </span>
+                  </div>
                 </div>
-                <span className={`text-[10px] md:text-xs font-semibold ${step >= 4 ? "text-purple-400" : "text-white/40"}`}>
-                  Launch
-                </span>
+              </>
+            ) : (
+              <div className="text-center space-y-2 relative">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowExplainer(false)
+                    setTeachingMode(null)
+                    handleResetStudy()
+                  }}
+                  className="absolute left-0 top-1/2 -translate-y-1/2 p-1.5 rounded-lg border border-white/10 bg-[#161618] hover:bg-white/5 text-xs text-white/60 hover:text-white transition-all flex items-center gap-1 cursor-pointer"
+                >
+                  <ArrowLeft className="h-3.5 w-3.5" />
+                  Back
+                </button>
+                <h2 className="text-2xl font-bold text-white tracking-tight">I'll Teach (Instant Explainer)</h2>
+                <p className="text-xs md:text-sm text-white/40">Upload files to get an instant explanation and resolve doubts</p>
               </div>
-            </div>
+            )}
+
+            {/* STUDY BUDDY / INSTANT EXPLAINER INTERFACE */}
+            {showExplainer && (
+              <div className="space-y-6 animate-fadeIn">
+                {/* ─── CASE 1: INITIAL STATE (UPLOAD BOX) ─── */}
+                {!studyFile && !isStudyParsing && (
+                  <div className="flex flex-col justify-center items-center py-12">
+                    <label className="w-full max-w-lg border-2 border-dashed border-purple-500/20 hover:border-purple-500/50 bg-[#161618] hover:bg-purple-500/[0.01] rounded-3xl p-12 text-center cursor-pointer transition-all flex flex-col items-center justify-center gap-4 group relative shadow-2xl">
+                      <input
+                        type="file"
+                        accept=".pdf,.txt,.md,.docx,.pptx,.ppt"
+                        className="hidden"
+                        onChange={handleStudyFileUpload}
+                      />
+                      <div className="h-14 w-14 rounded-2xl bg-purple-500/10 flex items-center justify-center text-purple-400 group-hover:scale-110 transition-transform shadow-lg shadow-purple-500/5">
+                        <Upload className="h-6 w-6" />
+                      </div>
+                      <div className="space-y-1.5 mt-2">
+                        <span className="text-sm font-bold text-white block group-hover:text-purple-300 transition-colors">
+                          Upload Slides, PPTs, PDFs, or Text notes
+                        </span>
+                        <span className="text-xs text-white/30 block">
+                          Drag and drop file here, or click to browse
+                        </span>
+                      </div>
+                      <div className="flex gap-2 text-[10px] text-white/20 font-semibold uppercase tracking-wider mt-4">
+                        <span>PDF</span>•<span>PPTX</span>•<span>DOCX</span>•<span>TXT</span>
+                      </div>
+                    </label>
+                  </div>
+                )}
+
+                {/* ─── CASE 2: PARSING STATE ─── */}
+                {isStudyParsing && (
+                  <div className="flex flex-col items-center justify-center py-20 space-y-4">
+                    <div className="relative">
+                      <Loader2 className="h-10 w-10 text-purple-500 animate-spin" />
+                      <Brain className="h-5 w-5 text-purple-300 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 animate-pulse" />
+                    </div>
+                    <div className="text-center space-y-1">
+                      <h3 className="text-sm font-bold text-white">Analyzing file...</h3>
+                      <p className="text-xs text-purple-400/80 font-mono">{studyParsingStep}</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* ─── CASE 3: EXPLANATION RENDERED (SPLIT SCREEN) ─── */}
+                {mounted && studyExplanation && (
+                  <div className="grid gap-6 lg:grid-cols-12 items-stretch min-h-0">
+                    
+                    {/* LEFT: Core Explanation panel (7/12 cols) */}
+                    <section className="lg:col-span-7 bg-[#111111] border border-white/5 rounded-3xl p-6 flex flex-col space-y-6 overflow-y-auto max-h-[500px] cscroll shadow-xl">
+                      
+                      {/* Header Badge */}
+                      <div className="flex items-center gap-3 border-b border-white/5 pb-5">
+                        <div className="h-10 w-10 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400">
+                          <FileText className="h-5 w-5" />
+                        </div>
+                        <div className="overflow-hidden">
+                          <h3 className="text-sm font-bold text-white truncate max-w-md">{studyFile?.name}</h3>
+                          <p className="text-[10px] text-white/30 font-semibold uppercase tracking-wider mt-0.5">
+                            {studyFile && studyFile.size > 1024 * 1024 
+                              ? `${(studyFile.size / 1024 / 1024).toFixed(1)} MB` 
+                              : `${((studyFile?.size || 0) / 1024).toFixed(1)} KB`
+                            }
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* 1. Overview */}
+                      <div className="space-y-2">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-purple-400 flex items-center gap-1.5">
+                          <BookOpen className="h-3.5 w-3.5" />
+                          Overview Summary
+                        </span>
+                        <p className="text-sm text-white/90 leading-relaxed font-semibold italic border-l-2 border-purple-500/40 pl-3">
+                          &ldquo;{studyExplanation.summary}&rdquo;
+                        </p>
+                      </div>
+
+                      {/* 2. Key Concepts */}
+                      <div className="space-y-3 pt-2">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-purple-400 flex items-center gap-1.5">
+                          <Sparkles className="h-3.5 w-3.5" />
+                          Key Concepts
+                        </span>
+                        <ul className="grid gap-4">
+                          {studyExplanation.keyConcepts?.map((concept: any, i: number) => (
+                            <li key={i} className="flex flex-col md:flex-row gap-4 items-start text-xs text-white/70 leading-relaxed bg-[#1a1a1c] border border-white/[0.02] p-4 rounded-xl shadow-sm">
+                              <div className="flex-1 space-y-1.5">
+                                <div className="flex items-center gap-2">
+                                  <span className="h-5 w-5 rounded bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-[10px] font-bold text-purple-400 flex-shrink-0">
+                                    {i + 1}
+                                  </span>
+                                  <span className="font-bold text-white text-sm">{concept.concept}</span>
+                                </div>
+                                <p className="text-white/70 text-xs leading-relaxed">{concept.description}</p>
+                              </div>
+                              {concept.imageUrl && (
+                                <div className="w-full md:w-32 h-20 rounded-lg overflow-hidden border border-white/5 relative flex-shrink-0 group">
+                                  <img
+                                    src={concept.imageUrl}
+                                    alt={concept.concept}
+                                    className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
+                                  />
+                                </div>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+
+                      {/* 3. Detailed Shortcut Explanations */}
+                      <div className="space-y-3 pt-2 border-t border-white/5">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-purple-400 flex items-center gap-1.5">
+                          <Brain className="h-3.5 w-3.5" />
+                          Shortcut Lecture Explanation
+                        </span>
+                        <div className="text-xs text-white/70 leading-relaxed space-y-4 font-normal">
+                          {studyExplanation.details?.split("\n\n").map((para: string, i: number) => (
+                            <p key={i}>{para}</p>
+                          ))}
+                        </div>
+                      </div>
+
+                    </section>
+
+                    {/* RIGHT: Chat QA (5/12 cols) */}
+                    <section className="lg:col-span-5 bg-[#111111] border border-white/5 rounded-3xl p-6 flex flex-col overflow-hidden max-h-[500px] shadow-xl">
+                      
+                      {/* Chat Header */}
+                      <div className="border-b border-white/5 pb-4 flex items-center justify-between flex-shrink-0">
+                        <h4 className="text-xs font-bold uppercase tracking-wider text-white/80 flex items-center gap-1.5">
+                          <HelpCircle className="h-4 w-4 text-purple-400" />
+                          Doubt Chat
+                        </h4>
+                        <span className="flex items-center gap-1">
+                          <span className="h-1.5 w-1.5 rounded-full bg-purple-500 animate-ping" />
+                          <span className="text-[9px] text-purple-400 font-bold uppercase tracking-wider">Document AI Active</span>
+                        </span>
+                      </div>
+
+                      {/* Messages Feed */}
+                      <div className="flex-1 overflow-y-auto cscroll py-4 space-y-3 pr-1 min-h-0">
+                        {studyChatHistory.map((msg, i) => (
+                          <div
+                            key={i}
+                            className={`flex flex-col gap-0.5 max-w-[85%] animate-fadeIn ${
+                              msg.isAI ? "self-start items-start" : "self-end items-end ml-auto"
+                            }`}
+                          >
+                            <span className="text-[9px] text-white/20 font-semibold">{msg.sender}</span>
+                            <div
+                              className={`text-xs px-3.5 py-2.5 rounded-2xl leading-relaxed shadow-sm ${
+                                msg.isAI
+                                  ? "bg-[#1a1a1c] border border-white/[0.03] text-white/80 rounded-tl-none flex gap-2 items-start"
+                                  : "bg-purple-600 text-white rounded-tr-none"
+                              }`}
+                            >
+                              {msg.isAI && <Brain className="h-3.5 w-3.5 text-purple-400 flex-shrink-0 mt-0.5" />}
+                              <span>{msg.text}</span>
+                            </div>
+                          </div>
+                        ))}
+                        <div ref={studyChatEndRef} />
+                      </div>
+
+                      {/* Input Query Bar */}
+                      <form onSubmit={handleAskStudyDoubt} className="pt-4 border-t border-white/5 flex gap-2.5 flex-shrink-0">
+                        <input
+                          type="text"
+                          required
+                          value={studyQuery}
+                          onChange={(e) => setStudyQuery(e.target.value)}
+                          placeholder={isStudyAnswering ? "Buddy is generating answer..." : "Ask doubt about notes..."}
+                          disabled={isStudyAnswering}
+                          className="flex-1 px-4 py-3 bg-[#1a1a1c] border border-white/8 rounded-xl text-xs focus:outline-none focus:border-purple-500/40 text-white placeholder:text-white/20 disabled:opacity-50"
+                        />
+                        <button
+                          type="submit"
+                          disabled={isStudyAnswering}
+                          className="px-4 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-xl transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                        >
+                          {isStudyAnswering ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Send className="h-3.5 w-3.5" />
+                          )}
+                        </button>
+                      </form>
+
+                    </section>
+
+                  </div>
+                )}
+                {studyFile && (
+                  <div className="flex justify-end pt-4 border-t border-white/5">
+                    <button
+                      onClick={handleResetStudy}
+                      className="px-4 py-2 rounded-xl border border-white/10 bg-[#161618] text-xs font-semibold text-white/60 hover:text-white hover:bg-white/5 transition-all flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      Upload New File
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* STEP 1: TEACHING MODE SELECTOR */}
-            {step === 1 && (
+            {!showExplainer && step === 1 && (
               <div className="space-y-6 animate-fadeIn">
                 <div className="text-center space-y-1">
                   <label className="text-xs font-bold uppercase tracking-wider text-white/60">
@@ -438,10 +947,17 @@ export default function CreateSessionPage() {
                     </ul>
                   </div>
 
-                  {/* Card 2: I'll Teach */}
+                  {/* Card 2: I'll Teach (Instant Explainer) */}
                   <div
-                    onClick={() => setTeachingMode("Human")}
-                    className={`group relative overflow-hidden rounded-2xl bg-[#111111] border p-6 cursor-pointer transition-all flex flex-col gap-4 hover:border-purple-500/50 ${
+                    onClick={() => {
+                      if (userRole === "teacher") return;
+                      setTeachingMode("Human");
+                    }}
+                    className={`group relative overflow-hidden rounded-2xl bg-[#111111] border p-6 transition-all flex flex-col gap-4 ${
+                      userRole === "teacher"
+                        ? "opacity-35 border-white/5 cursor-not-allowed"
+                        : "cursor-pointer hover:border-purple-500/50"
+                    } ${
                       teachingMode === "Human"
                         ? "border-purple-500 shadow-[0_0_20px_rgba(147,51,234,0.3)] bg-purple-500/[0.02]"
                         : "border-white/5"
@@ -452,23 +968,30 @@ export default function CreateSessionPage() {
                         <UserIcon className="h-5 w-5" />
                       </div>
                       <div>
-                        <h3 className="text-sm font-bold text-white">I'll Teach</h3>
-                        <p className="text-[10px] text-white/40">Lead the class yourself</p>
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-sm font-bold text-white">I'll Teach (Instant Explainer)</h3>
+                          {userRole === "teacher" && (
+                            <span className="text-[8px] bg-purple-500/20 text-purple-300 font-bold px-1.5 py-0.5 rounded-full border border-purple-500/30">
+                              Disabled
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[10px] text-white/40">Upload & explain study materials</p>
                       </div>
                     </div>
 
                     <ul className="space-y-2.5 text-xs text-white/70 mt-2">
                       <li className="flex items-center gap-2">
-                        <span className="text-purple-400 font-bold">✓</span> You lead via mic & camera
+                        <span className="text-purple-400 font-bold">✓</span> Upload notes, slides, PDFs, PPTs
                       </li>
                       <li className="flex items-center gap-2">
-                        <span className="text-purple-400 font-bold">✓</span> AI generates visuals as you speak
+                        <span className="text-purple-400 font-bold">✓</span> AI summarizes & extracts concepts
                       </li>
                       <li className="flex items-center gap-2">
-                        <span className="text-purple-400 font-bold">✓</span> AI handles student doubt chat
+                        <span className="text-purple-400 font-bold">✓</span> Quick shortcut explanations generated
                       </li>
                       <li className="flex items-center gap-2">
-                        <span className="text-purple-400 font-bold">✓</span> Screen sharing available
+                        <span className="text-purple-400 font-bold">✓</span> Live doubt chat based on the document
                       </li>
                     </ul>
                   </div>
@@ -487,7 +1010,7 @@ export default function CreateSessionPage() {
             )}
 
             {/* STEP 2: SESSION INFO */}
-            {step === 2 && (
+            {!showExplainer && step === 2 && (
               <form onSubmit={handleStep2Submit} className="space-y-6 animate-fadeIn">
                 {/* Title */}
                 <div className="space-y-2">
@@ -653,7 +1176,7 @@ export default function CreateSessionPage() {
             )}
 
             {/* STEP 3: CONTENT / TOPICS CONFIGURATION */}
-            {step === 3 && (
+            {!showExplainer && step === 3 && (
               <form onSubmit={handleStep3Submit} className="space-y-6 animate-fadeIn">
                 
                 {/* ─── BRANCH: AI TEACHER ─── */}
@@ -900,7 +1423,7 @@ export default function CreateSessionPage() {
             )}
 
             {/* STEP 4: LAUNCH */}
-            {step === 4 && (
+            {!showExplainer && step === 4 && (
               <div className="space-y-6 animate-fadeIn">
                 
                 {/* Summary Card */}

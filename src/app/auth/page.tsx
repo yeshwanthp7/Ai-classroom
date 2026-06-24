@@ -14,6 +14,7 @@ import { joinSession } from "@/lib/session-service"
 export default function AuthPage() {
   const [tab, setTab] = useState<"teacher" | "student">("teacher")
   const [teacherMode, setTeacherMode] = useState<"signin" | "signup">("signin")
+  const [studentSubTab, setStudentSubTab] = useState<"choice" | "join" | "self-signin" | "self-signup">("choice")
 
   // Form states
   const [name, setName] = useState("")
@@ -61,6 +62,7 @@ export default function AuthPage() {
   useEffect(() => {
     setError(null)
     setSuccess(null)
+    setStudentSubTab("choice")
   }, [tab, teacherMode])
 
   // Sign in with Google
@@ -79,6 +81,7 @@ export default function AuthPage() {
         return
       }
 
+      localStorage.setItem("user_role", tab === "student" ? "student" : "teacher")
       setError(null)
       setIsSubmitting(true)
       setSuccess(`Signed in successfully as ${user.displayName || user.email}!`)
@@ -98,6 +101,42 @@ export default function AuthPage() {
     }
   }
 
+  // Bypass Firebase completely and enter Demo Mode (Teacher)
+  const handleBypassLogin = () => {
+    localStorage.setItem("use_mock_mode", "true");
+    localStorage.setItem("mock_user_logged_in", "true");
+    localStorage.setItem("mock_user_email", "demo-teacher@classai.com");
+    localStorage.setItem("mock_user_name", "Demo Teacher");
+    localStorage.setItem("user_role", "teacher");
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("mock-auth-change"));
+    }
+    setError(null);
+    setSuccess("Bypassing credentials and entering Demo Mode...");
+    setIsSubmitting(true);
+    setTimeout(() => {
+      window.location.href = "/dashboard"
+    }, 1200);
+  }
+
+  // Bypass Firebase completely and enter Self Learn Mode (Student)
+  const handleBypassStudentLogin = () => {
+    localStorage.setItem("use_mock_mode", "true");
+    localStorage.setItem("mock_user_logged_in", "true");
+    localStorage.setItem("mock_user_email", "demo-student@classai.com");
+    localStorage.setItem("mock_user_name", "Demo Student");
+    localStorage.setItem("user_role", "student");
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("mock-auth-change"));
+    }
+    setError(null);
+    setSuccess("Bypassing credentials and entering Student Self Learn Mode...");
+    setIsSubmitting(true);
+    setTimeout(() => {
+      window.location.href = "/dashboard"
+    }, 1200);
+  }
+
   // Handle form submissions
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -107,8 +146,9 @@ export default function AuthPage() {
 
     try {
       if (tab === "teacher") {
+        localStorage.setItem("user_role", "teacher");
         if (!isFirebaseConfigured) {
-          throw new Error("Firebase credentials are not configured. Please set up your .env.local file.")
+          localStorage.setItem("use_mock_mode", "true");
         }
         if (teacherMode === "signin") {
           // Teacher Sign In
@@ -132,31 +172,61 @@ export default function AuthPage() {
           }, 1500)
         }
       } else {
-        // Student Join Class
-        if (!name.trim()) {
-          throw new Error("Please enter your name.")
+        // Student Flow
+        if (studentSubTab === "join") {
+          // Student Join Class
+          if (!name.trim()) {
+            throw new Error("Please enter your name.")
+          }
+          if (!sessionCode.trim()) {
+            throw new Error("Please enter a session code.")
+          }
+          
+          const formattedCode = sessionCode.trim().toUpperCase()
+          const joinPromise = joinSession(name, formattedCode)
+          
+          const studentId = await Promise.race([
+            joinPromise,
+            new Promise<string>((_, reject) =>
+              setTimeout(() => reject(new Error("Database connection timed out. Please check your internet connection or ensure that the session code is correct and the database is active.")), 8000)
+            )
+          ])
+          
+          localStorage.setItem("studentName", name)
+          localStorage.setItem("studentId", studentId)
+          localStorage.setItem("user_role", "student_classroom") // joined classroom role
+          
+          setSuccess(`Joining session ${formattedCode} as ${name}...`)
+          setTimeout(() => {
+            window.location.href = `/session/${formattedCode}`
+          }, 1500)
+        } else if (studentSubTab === "self-signin") {
+          localStorage.setItem("user_role", "student");
+          if (!isFirebaseConfigured) {
+            localStorage.setItem("use_mock_mode", "true");
+          }
+          const user = await signInWithEmail(email, password)
+          setSuccess(`Logged in successfully as ${user.displayName || user.email}!`)
+          setTimeout(() => {
+            window.location.href = "/dashboard"
+          }, 1500)
+        } else if (studentSubTab === "self-signup") {
+          localStorage.setItem("user_role", "student");
+          if (!isFirebaseConfigured) {
+            localStorage.setItem("use_mock_mode", "true");
+          }
+          if (password !== confirmPassword) {
+            throw new Error("Passwords do not match.")
+          }
+          if (password.length < 6) {
+            throw new Error("Password must be at least 6 characters.")
+          }
+          const user = await signUpWithEmail(email, password, name)
+          setSuccess(`Student account created successfully for ${user.displayName}! Redirecting...`)
+          setTimeout(() => {
+            window.location.href = "/dashboard"
+          }, 1500)
         }
-        if (!sessionCode.trim()) {
-          throw new Error("Please enter a session code.")
-        }
-        
-        const formattedCode = sessionCode.trim().toUpperCase()
-        const joinPromise = joinSession(name, formattedCode)
-        
-        const studentId = await Promise.race([
-          joinPromise,
-          new Promise<string>((_, reject) =>
-            setTimeout(() => reject(new Error("Database connection timed out. Please check your internet connection or ensure that the session code is correct and the database is active.")), 8000)
-          )
-        ])
-        
-        localStorage.setItem("studentName", name)
-        localStorage.setItem("studentId", studentId)
-        
-        setSuccess(`Joining session ${formattedCode} as ${name}...`)
-        setTimeout(() => {
-          window.location.href = `/session/${formattedCode}`
-        }, 1500)
       }
     } catch (err: any) {
       console.warn("Authentication or database error:", err)
@@ -289,14 +359,22 @@ export default function AuthPage() {
 
           {/* Configuration Warning Alert Banner */}
           {!isFirebaseConfigured && tab === "teacher" && (
-            <div className="mb-6 rounded-xl bg-amber-50 border border-amber-200 p-4 text-sm text-amber-800 animate-pulse-slow">
-              <div className="flex gap-2 font-bold mb-1 items-center">
-                <AlertCircle className="h-4 w-4 text-amber-600 flex-shrink-0" />
-                Firebase Credentials Required
+            <div className="mb-6 rounded-xl bg-purple-50 border border-purple-200 p-4 text-sm text-purple-800">
+              <div className="flex gap-2 font-bold mb-1 items-center animate-pulse-slow">
+                <Sparkles className="h-4 w-4 text-purple-600 flex-shrink-0" />
+                Firebase Credentials Unconfigured
               </div>
-              <p className="text-xs leading-relaxed text-amber-700">
-                Please duplicate the <code className="bg-amber-100/80 px-1 py-0.5 rounded font-mono font-semibold">.env.local.example</code> file to <code className="bg-amber-100/80 px-1 py-0.5 rounded font-mono font-semibold">.env.local</code> and fill in your Firebase API credentials.
+              <p className="text-xs leading-relaxed text-purple-700 mb-3">
+                The application is running in **Demo Mode**. You can log in with any email & password, or bypass login completely to start testing immediately.
               </p>
+              <button
+                type="button"
+                onClick={handleBypassLogin}
+                className="w-full py-2 px-3 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                Bypass Login & Enter Demo Mode
+              </button>
             </div>
           )}
 
@@ -329,7 +407,7 @@ export default function AuthPage() {
                     {/* Google Button */}
                     <button
                       type="button"
-                      disabled={isSubmitting || !isFirebaseConfigured}
+                      disabled={isSubmitting}
                       onClick={handleGoogleSignIn}
                       className="w-full h-[52px] bg-white border border-neutral-200 rounded-lg text-neutral-800 font-semibold flex items-center justify-center gap-3 transition-colors hover:bg-neutral-50 hover:border-neutral-300 shadow-sm cursor-pointer disabled:opacity-50"
                     >
@@ -375,7 +453,7 @@ export default function AuthPage() {
                       <input
                         type="email"
                         required
-                        disabled={isSubmitting || !isFirebaseConfigured}
+                        disabled={isSubmitting}
                         placeholder="you@school.edu"
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
@@ -389,7 +467,7 @@ export default function AuthPage() {
                       <input
                         type="password"
                         required
-                        disabled={isSubmitting || !isFirebaseConfigured}
+                        disabled={isSubmitting}
                         placeholder="••••••••"
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
@@ -400,7 +478,7 @@ export default function AuthPage() {
                     {/* Submit Sign In */}
                     <button
                       type="submit"
-                      disabled={isSubmitting || !isFirebaseConfigured}
+                      disabled={isSubmitting}
                       className="w-full h-11 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-lg transition-colors mt-6 shadow-md shadow-purple-500/10 cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
                     >
                       {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
@@ -410,7 +488,7 @@ export default function AuthPage() {
                     {/* Forgot password */}
                     <button
                       type="button"
-                      disabled={!isFirebaseConfigured}
+                      disabled={false}
                       className="w-full text-center text-sm text-purple-600 hover:text-purple-700 font-medium transition-colors pt-2 block disabled:opacity-50 cursor-pointer"
                     >
                       Forgot password?
@@ -442,7 +520,7 @@ export default function AuthPage() {
                     {/* Google Button */}
                     <button
                       type="button"
-                      disabled={isSubmitting || !isFirebaseConfigured}
+                      disabled={isSubmitting}
                       onClick={handleGoogleSignIn}
                       className="w-full h-[52px] bg-white border border-neutral-200 rounded-lg text-neutral-800 font-semibold flex items-center justify-center gap-3 transition-colors hover:bg-neutral-50 hover:border-neutral-300 shadow-sm cursor-pointer disabled:opacity-50"
                     >
@@ -488,7 +566,7 @@ export default function AuthPage() {
                       <input
                         type="text"
                         required
-                        disabled={isSubmitting || !isFirebaseConfigured}
+                        disabled={isSubmitting}
                         placeholder="Dr. Sarah Jenkins"
                         value={name}
                         onChange={(e) => setName(e.target.value)}
@@ -502,7 +580,7 @@ export default function AuthPage() {
                       <input
                         type="email"
                         required
-                        disabled={isSubmitting || !isFirebaseConfigured}
+                        disabled={isSubmitting}
                         placeholder="you@school.edu"
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
@@ -516,7 +594,7 @@ export default function AuthPage() {
                       <input
                         type="password"
                         required
-                        disabled={isSubmitting || !isFirebaseConfigured}
+                        disabled={isSubmitting}
                         placeholder="••••••••"
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
@@ -530,7 +608,7 @@ export default function AuthPage() {
                       <input
                         type="password"
                         required
-                        disabled={isSubmitting || !isFirebaseConfigured}
+                        disabled={isSubmitting}
                         placeholder="••••••••"
                         value={confirmPassword}
                         onChange={(e) => setConfirmPassword(e.target.value)}
@@ -541,7 +619,7 @@ export default function AuthPage() {
                     {/* Submit Sign Up */}
                     <button
                       type="submit"
-                      disabled={isSubmitting || !isFirebaseConfigured}
+                      disabled={isSubmitting}
                       className="w-full h-11 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-lg transition-colors mt-6 shadow-md shadow-purple-500/10 cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
                     >
                       {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
@@ -566,7 +644,38 @@ export default function AuthPage() {
             )}
 
             {/* ─── CASE: STUDENT FLOW ─── */}
-            {tab === "student" && (
+            {tab === "student" && studentSubTab === "choice" && (
+              <div className="space-y-6">
+                <div className="text-center mb-6">
+                  <h2 className="text-2xl font-bold text-neutral-950">Welcome, Student!</h2>
+                  <p className="text-sm text-neutral-500 mt-1">How would you like to study today?</p>
+                </div>
+
+                <div className="grid gap-4">
+                  {/* Option 1: Join Class */}
+                  <button
+                    type="button"
+                    onClick={() => setStudentSubTab("join")}
+                    className="w-full text-left p-5 bg-neutral-50 border border-neutral-200 rounded-xl hover:border-purple-500 hover:bg-purple-50/[0.02] transition-all flex flex-col gap-1.5 cursor-pointer shadow-sm"
+                  >
+                    <span className="text-sm font-bold text-neutral-900">Join a Live Class</span>
+                    <span className="text-xs text-neutral-500 leading-relaxed">Enter a code provided by your teacher to join the classroom session.</span>
+                  </button>
+
+                  {/* Option 2: Self Learn */}
+                  <button
+                    type="button"
+                    onClick={() => setStudentSubTab("self-signin")}
+                    className="w-full text-left p-5 bg-neutral-50 border border-neutral-200 rounded-xl hover:border-purple-500 hover:bg-purple-50/[0.02] transition-all flex flex-col gap-1.5 cursor-pointer shadow-sm"
+                  >
+                    <span className="text-sm font-bold text-neutral-900">Self Learn (AI Study Buddy)</span>
+                    <span className="text-xs text-neutral-500 leading-relaxed">Upload slides, notes, or PDFs to get instant shortcut explanations, images & doubt chat.</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {tab === "student" && studentSubTab === "join" && (
               <div className="space-y-4">
                 <div className="text-center mb-6">
                   <h2 className="text-2xl font-bold text-neutral-950">Join a Session</h2>
@@ -612,9 +721,176 @@ export default function AuthPage() {
                   {isSubmitting ? "Joining..." : "Join Class"}
                 </button>
 
-                {/* Hint Text */}
-                <p className="text-xs text-neutral-400 text-center mt-4 leading-relaxed">
-                  No account needed. Just enter the code your teacher shared.
+                {/* Back button */}
+                <button
+                  type="button"
+                  onClick={() => setStudentSubTab("choice")}
+                  className="w-full text-center text-xs font-semibold text-purple-600 hover:text-purple-700 transition-colors cursor-pointer mt-4"
+                >
+                  ← Back to choices
+                </button>
+              </div>
+            )}
+
+            {tab === "student" && studentSubTab === "self-signin" && (
+              <div className="space-y-4">
+                <div className="text-center mb-6">
+                  <h2 className="text-2xl font-bold text-neutral-950">Student Login</h2>
+                  <p className="text-sm text-neutral-500 mt-1">Sign in to your student self-learn account</p>
+                </div>
+
+                {/* Email address */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-neutral-700 uppercase tracking-wider">Email Address</label>
+                  <input
+                    type="email"
+                    required
+                    disabled={isSubmitting}
+                    placeholder="student@school.edu"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full px-3.5 py-2.5 text-sm bg-white border border-neutral-200 rounded-lg text-neutral-900 placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-colors disabled:opacity-50"
+                  />
+                </div>
+
+                {/* Password */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-neutral-700 uppercase tracking-wider">Password</label>
+                  <input
+                    type="password"
+                    required
+                    disabled={isSubmitting}
+                    placeholder="••••••••"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full px-3.5 py-2.5 text-sm bg-white border border-neutral-200 rounded-lg text-neutral-900 placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-colors disabled:opacity-50"
+                  />
+                </div>
+
+                {/* Submit login */}
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="w-full h-11 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-lg transition-colors mt-6 shadow-md shadow-purple-500/10 cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
+                  {isSubmitting ? "Signing In..." : "Sign In"}
+                </button>
+
+                {/* Student Bypass Option */}
+                {!isFirebaseConfigured && (
+                  <button
+                    type="button"
+                    onClick={handleBypassStudentLogin}
+                    className="w-full py-2.5 px-3 border border-purple-200 bg-purple-50/50 hover:bg-purple-55 text-purple-700 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer mt-2"
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                    Bypass Login & Enter Self Learn Mode
+                  </button>
+                )}
+
+                {/* Signup toggle */}
+                <p className="text-sm text-neutral-500 text-center mt-6 pt-2 border-t border-neutral-100">
+                  Don't have a student account?{" "}
+                  <button
+                    type="button"
+                    disabled={isSubmitting}
+                    onClick={() => setStudentSubTab("self-signup")}
+                    className="font-semibold text-purple-600 hover:text-purple-700 transition-colors cursor-pointer"
+                  >
+                    Register here
+                  </button>
+                </p>
+
+                {/* Back to choice */}
+                <button
+                  type="button"
+                  onClick={() => setStudentSubTab("choice")}
+                  className="w-full text-center text-xs font-semibold text-purple-600 hover:text-purple-700 transition-colors cursor-pointer mt-2"
+                >
+                  ← Back to choices
+                </button>
+              </div>
+            )}
+
+            {tab === "student" && studentSubTab === "self-signup" && (
+              <div className="space-y-4">
+                <div className="text-center mb-6">
+                  <h2 className="text-2xl font-bold text-neutral-950">Student Registration</h2>
+                  <p className="text-sm text-neutral-500 mt-1">Create your self-learning student account</p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-neutral-700 uppercase tracking-wider">Full Name</label>
+                  <input
+                    type="text"
+                    required
+                    disabled={isSubmitting}
+                    placeholder="Alex Smith"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className="w-full px-3.5 py-2.5 text-sm bg-white border border-neutral-200 rounded-lg text-neutral-900 placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-colors disabled:opacity-50"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-neutral-700 uppercase tracking-wider">Email Address</label>
+                  <input
+                    type="email"
+                    required
+                    disabled={isSubmitting}
+                    placeholder="student@school.edu"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full px-3.5 py-2.5 text-sm bg-white border border-neutral-200 rounded-lg text-neutral-900 placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-colors disabled:opacity-50"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-neutral-700 uppercase tracking-wider">Password</label>
+                  <input
+                    type="password"
+                    required
+                    disabled={isSubmitting}
+                    placeholder="••••••••"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full px-3.5 py-2.5 text-sm bg-white border border-neutral-200 rounded-lg text-neutral-900 placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-colors disabled:opacity-50"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-neutral-700 uppercase tracking-wider">Confirm Password</label>
+                  <input
+                    type="password"
+                    required
+                    disabled={isSubmitting}
+                    placeholder="••••••••"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    className="w-full px-3.5 py-2.5 text-sm bg-white border border-neutral-200 rounded-lg text-neutral-900 placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-colors disabled:opacity-50"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="w-full h-11 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-lg transition-colors mt-6 shadow-md shadow-purple-500/10 cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
+                  {isSubmitting ? "Registering..." : "Register"}
+                </button>
+
+                <p className="text-sm text-neutral-500 text-center mt-6 pt-2 border-t border-neutral-100">
+                  Already have a student account?{" "}
+                  <button
+                    type="button"
+                    disabled={isSubmitting}
+                    onClick={() => setStudentSubTab("self-signin")}
+                    className="font-semibold text-purple-600 hover:text-purple-700 transition-colors cursor-pointer"
+                  >
+                    Sign in
+                  </button>
                 </p>
               </div>
             )}

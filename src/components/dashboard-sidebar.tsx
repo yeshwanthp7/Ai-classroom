@@ -11,12 +11,14 @@ import {
   Settings,
   LogOut,
   X,
+  FileText,
 } from "lucide-react"
 import { subscribeToAuthChanges, signOutUser, User } from "@/lib/auth-service"
 
 // Sidebar navigation items
 const navItems = [
   { label: "Dashboard", icon: LayoutDashboard, href: "/dashboard" },
+  { label: "AI Study Buddy", icon: FileText, href: "/dashboard/study-buddy" },
   { label: "My Sessions", icon: Video, href: "#" },
   { label: "Analytics", icon: BarChart3, href: "#" },
   { label: "Students", icon: Users, href: "#" },
